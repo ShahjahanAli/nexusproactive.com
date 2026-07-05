@@ -1,0 +1,57 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Nexus Test API",
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/orders/{id}": {
+      "get": {
+        "operationId": "getOrder",
+        "summary": "Get order by ID",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": { "200": { "description": "OK" } }
+      }
+    },
+    "/orders/{id}/cancel": {
+      "post": {
+        "operationId": "cancelOrder",
+        "summary": "Cancel an order permanently",
+        "responses": { "200": { "description": "Cancelled" } }
+      }
+    },
+    "/users/{id}/email": {
+      "patch": {
+        "operationId": "updateUserEmail",
+        "summary": "Update user email address",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "email": { "type": "string", "format": "email" }
+                }
+              }
+            }
+          }
+        },
+        "responses": { "200": { "description": "Updated" } }
+      }
+    },
+    "/invoices/{id}/charge": {
+      "post": {
+        "operationId": "chargeInvoice",
+        "summary": "Charge invoice payment",
+        "responses": { "200": { "description": "Charged" } }
+      }
+    }
+  }
+}

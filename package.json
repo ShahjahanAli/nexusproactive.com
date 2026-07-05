@@ -1,0 +1,23 @@
+{
+  "name": "nexus-widget",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspaces --if-present",
+    "dev:api": "npm run dev -w @nexus/api",
+    "dev:dashboard": "npm run dev -w @nexus/dashboard",
+    "build": "npm run build --workspaces --if-present",
+    "db:migrate": "npm run db:migrate -w @nexus/api",
+    "db:rollback": "npm run db:rollback -w @nexus/api",
+    "db:migrate:status": "npm run db:migrate:status -w @nexus/api",
+    "db:baseline": "npm run db:baseline -w @nexus/api",
+    "db:make:migration": "npm run db:make:migration -w @nexus/api",
+    "dev:widget": "npm run dev -w @nexus/widget"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
