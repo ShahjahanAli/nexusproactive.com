@@ -11,11 +11,15 @@ import { healthCheckRedis } from './services/redis';
 import authRoutes from './routes/auth';
 import tenantRoutes from './routes/tenant';
 import sitesRoutes from './routes/sites';
-import webhooksRoutes from './routes/webhooks';
+import stripeWebhooksRoutes from './routes/stripeWebhooks';
+import webhookSubscriptionRoutes from './routes/webhookSubscriptions';
 import chatRoutes from './routes/chat';
 import conversationsRoutes from './routes/conversations';
 import signalsRoutes from './routes/signals';
 import visitorsRoutes from './routes/visitors';
+import escalationsRoutes from './routes/escalations';
+import proactiveRoutes from './routes/proactive';
+import widgetRoutes from './routes/widget';
 import devMockRoutes from './routes/devMock';
 
 export function createApp() {
@@ -31,7 +35,7 @@ export function createApp() {
     }),
   );
 
-  app.use('/webhooks', webhooksRoutes);
+  app.use('/webhooks', stripeWebhooksRoutes);
 
   app.use(express.json());
   app.use(cookieParser());
@@ -57,6 +61,10 @@ export function createApp() {
   app.use('/conversations', conversationsRoutes);
   app.use('/signals', signalsRoutes);
   app.use('/visitors', visitorsRoutes);
+  app.use('/escalations', escalationsRoutes);
+  app.use('/webhook-subscriptions', webhookSubscriptionRoutes);
+  app.use('/proactive', proactiveRoutes);
+  app.use('/v1/widget', widgetRoutes);
   app.use('/v1/chat', widgetChatLimiter, chatRoutes);
 
   if (config.nodeEnv !== 'production') {

@@ -15,6 +15,7 @@ declare global {
     interface Request {
       tenantId?: string;
       auth?: AuthUser;
+      userId?: string;
     }
   }
 }
@@ -70,6 +71,7 @@ export async function requireTenantAuth(
   try {
     const payload = verifyToken(token);
     req.tenantId = payload.tenantId;
+    req.userId = payload.userId;
     req.auth = {
       userId: payload.userId,
       tenantId: payload.tenantId,

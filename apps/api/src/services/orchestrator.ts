@@ -41,6 +41,13 @@ import {
 } from './scopedJwt';
 import { checkPlanLimit, incrementUsage } from './planLimits';
 import { recordProductSignal } from './productSignals';
+import { isHumanHandled } from './escalations';
+import {
+  formatMemoriesForPrompt,
+  getVisitorMemories,
+  resolveVisitorId,
+} from './visitorMemory';
+import { dispatchWebhook } from './webhooks';
 
 const MAX_TOOL_ITERATIONS = 5;
 const UNDO_MINUTES = 5;
@@ -99,9 +106,11 @@ export async function* runOrchestrator(input: {
       }
     }
 
+    const visitorId = await resolveVisitorId(input.siteId, input.visitorId);
+
     const conversation = await getOrCreateConversation(
       input.siteId,
-      input.visitorId,
+      visitorId,
       input.conversationId,
     );
 
@@ -110,7 +119,38 @@ export async function* runOrchestrator(input: {
       conversationId: conversation.id,
     });
 
+    const isNewConversation = !input.conversationId;
+    if (tenantId && isNewConversation) {
+      void dispatchWebhook(tenantId, 'conversation.started', {
+        conversationId: conversation.id,
+        siteId: input.siteId,
+        visitorId,
+      });
+    }
+
     await saveMessage(conversation.id, 'user', input.message);
+
+    if (tenantId) {
+      void dispatchWebhook(tenantId, 'message.user', {
+        conversationId: conversation.id,
+        siteId: input.siteId,
+        visitorId,
+        message: input.message,
+      });
+    }
+
+    if (isHumanHandled(conversation.status)) {
+      yield sse({
+        type: 'token',
+        content:
+          conversation.status === 'human'
+            ? 'Your message was sent to our team. They will reply shortly.'
+            : 'You are in the queue for a team member. Hang tight — someone will join soon.',
+      });
+      yield sse({ type: 'trace', steps: trace });
+      yield sse({ type: 'done' });
+      return;
+    }
 
     if (tenantId) {
       await incrementUsage(tenantId, 'conversations_count');
@@ -178,11 +218,14 @@ export async function* runOrchestrator(input: {
       return;
     }
 
+    const memories = await getVisitorMemories(input.siteId, visitorId);
+    const memoryContext = formatMemoriesForPrompt(memories);
+
     const history = await getConversationMessages(conversation.id);
     const llmMessages: ChatMessage[] = [
       {
         role: 'system',
-        content: buildOrchestratorSystemPrompt(site, specialist, scopedActions),
+        content: buildOrchestratorSystemPrompt(site, specialist, scopedActions, memoryContext),
       },
       ...history
         .filter((m) => m.role !== 'system')
@@ -194,7 +237,7 @@ export async function* runOrchestrator(input: {
 
     const scopedPayload: ScopedJwtPayload = {
       site_id: input.siteId,
-      visitor_id: input.visitorId,
+      visitor_id: visitorId,
       allowed_operation_ids: scopedActions.map((a) => a.operation_id),
     };
 
@@ -314,6 +357,14 @@ export async function* runOrchestrator(input: {
         fullResponse,
         activeAgent === 'unknown' ? undefined : activeAgent,
       );
+      if (tenantId) {
+        void dispatchWebhook(tenantId, 'message.assistant', {
+          conversationId: conversation.id,
+          siteId: input.siteId,
+          visitorId,
+          message: fullResponse,
+        });
+      }
     }
 
     yield sse({ type: 'trace', steps: trace });

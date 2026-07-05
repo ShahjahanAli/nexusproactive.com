@@ -10,6 +10,13 @@ export class NexusChatElement extends HTMLElement {
     trace = [];
     showTrace = false;
     minimized = true;
+    conversationStatus = 'open';
+    widgetTheme = {};
+    humanPollTimer;
+    idleTimer;
+    lastActivityAt = Date.now();
+    renderedMessageCount = 0;
+    anonymousVisitorId;
     constructor() {
         super();
         this.shadow = this.attachShadow({ mode: 'open' });
@@ -19,16 +26,26 @@ export class NexusChatElement extends HTMLElement {
     connectedCallback() {
         this.siteId = this.getAttribute('site-id') ?? '';
         this.visitorId = this.resolveVisitorId();
-        this.conversationId = this.loadConversationId();
         this.render();
         this.bindEvents();
+        void this.bootstrap();
+    }
+    async bootstrap() {
+        this.conversationId = this.loadConversationId();
+        await this.loadWidgetConfig();
         void this.restoreSession();
+        void this.reportContext('page_view');
+        this.startIdleTracking();
     }
     bindEvents() {
         this.shadow.querySelector('[data-launch]')?.addEventListener('click', () => this.setMinimized(false));
         this.shadow.querySelector('[data-minimize]')?.addEventListener('click', () => this.setMinimized(true));
         this.shadow.querySelector('[data-toggle]')?.addEventListener('click', () => this.toggle());
+        this.shadow.querySelector('[data-escalate]')?.addEventListener('click', () => void this.escalateToHuman());
         this.shadow.querySelector('form')?.addEventListener('submit', (e) => this.onSubmit(e));
+        this.shadow.querySelector('input')?.addEventListener('input', () => {
+            this.lastActivityAt = Date.now();
+        });
     }
     setMinimized(minimized) {
         this.minimized = minimized;
@@ -49,11 +66,188 @@ export class NexusChatElement extends HTMLElement {
             void this.restoreSession();
         }
         if (name === 'visitor-id' && old !== value) {
+            const prevAnonymous = this.anonymousVisitorId ?? this.visitorId;
             const next = value?.trim() || this.loadAnonymousVisitorId();
             if (next !== this.visitorId) {
+                if (value?.trim() && prevAnonymous && prevAnonymous !== next) {
+                    void this.mergeVisitorIdentity(prevAnonymous, next);
+                }
                 this.visitorId = next;
                 this.clearSessionForSite();
             }
+        }
+    }
+    async mergeVisitorIdentity(fromId, toId) {
+        if (!this.siteId)
+            return;
+        try {
+            await fetch(`${API_URL}/v1/chat/merge-visitor`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    siteId: this.siteId,
+                    fromVisitorId: fromId,
+                    toVisitorId: toId,
+                }),
+            });
+        }
+        catch {
+            // non-fatal
+        }
+    }
+    async loadWidgetConfig() {
+        if (!this.siteId)
+            return;
+        try {
+            const res = await fetch(`${API_URL}/v1/widget/config?siteId=${this.siteId}`);
+            if (!res.ok)
+                return;
+            const data = (await res.json());
+            this.widgetTheme = data.theme ?? {};
+            this.applyTheme();
+        }
+        catch {
+            // use defaults
+        }
+    }
+    applyTheme() {
+        const t = this.widgetTheme;
+        const primary = t.primaryColor ?? '#059669';
+        const primaryDark = t.primaryColorDark ?? '#047857';
+        const pos = t.position ?? 'bottom-right';
+        this.style.setProperty('--nexus-primary', primary);
+        this.style.setProperty('--nexus-primary-dark', primaryDark);
+        if (pos === 'bottom-left') {
+            this.style.left = '24px';
+            this.style.right = 'auto';
+        }
+        else {
+            this.style.right = '24px';
+            this.style.left = 'auto';
+        }
+        const titleEl = this.shadow.querySelector('[data-title]');
+        const statusEl = this.shadow.querySelector('[data-subtitle]');
+        const escalateBtn = this.shadow.querySelector('[data-escalate]');
+        if (titleEl)
+            titleEl.textContent = t.title ?? 'Nexus Assistant';
+        if (statusEl)
+            statusEl.textContent = t.subtitle ?? '● Online';
+        if (escalateBtn) {
+            escalateBtn.style.display = t.escalationEnabled === false ? 'none' : '';
+        }
+    }
+    async reportContext(event = 'page_view') {
+        if (!this.siteId || this.widgetTheme.proactiveEnabled === false)
+            return;
+        const idleSeconds = Math.floor((Date.now() - this.lastActivityAt) / 1000);
+        try {
+            const res = await fetch(`${API_URL}/v1/chat/context`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    siteId: this.siteId,
+                    visitorId: this.visitorId,
+                    pageUrl: window.location.href,
+                    pageTitle: document.title,
+                    idleSeconds,
+                    event,
+                }),
+            });
+            if (!res.ok)
+                return;
+            const data = (await res.json());
+            if (data.proactiveMessage) {
+                this.showProactiveMessage(data.proactiveMessage);
+            }
+        }
+        catch {
+            // non-fatal
+        }
+    }
+    showProactiveMessage(message) {
+        if (this.messages.some((m) => m.role === 'system' && m.content === message))
+            return;
+        this.setMinimized(false);
+        this.addBubble(this.escape(message), 'system');
+        this.messages.push({ role: 'system', content: message });
+    }
+    startIdleTracking() {
+        if (this.idleTimer)
+            clearInterval(this.idleTimer);
+        this.idleTimer = setInterval(() => {
+            const idleSeconds = Math.floor((Date.now() - this.lastActivityAt) / 1000);
+            if (idleSeconds >= 60 && idleSeconds % 30 === 0) {
+                void this.reportContext('idle');
+            }
+        }, 15000);
+    }
+    startHumanPolling() {
+        this.stopHumanPolling();
+        this.humanPollTimer = setInterval(() => void this.pollHumanReplies(), 3000);
+    }
+    stopHumanPolling() {
+        if (this.humanPollTimer) {
+            clearInterval(this.humanPollTimer);
+            this.humanPollTimer = undefined;
+        }
+    }
+    async pollHumanReplies() {
+        if (!this.siteId || !this.conversationId)
+            return;
+        if (this.conversationStatus !== 'escalated' && this.conversationStatus !== 'human') {
+            this.stopHumanPolling();
+            return;
+        }
+        try {
+            const params = new URLSearchParams({
+                siteId: this.siteId,
+                visitorId: this.visitorId,
+                conversationId: this.conversationId,
+            });
+            const res = await fetch(`${API_URL}/v1/chat/history?${params}`);
+            if (!res.ok)
+                return;
+            const data = (await res.json());
+            this.conversationStatus = data.status;
+            if (data.messages.length > this.renderedMessageCount) {
+                const newMsgs = data.messages.slice(this.renderedMessageCount);
+                for (const m of newMsgs) {
+                    if (m.role === 'user')
+                        continue;
+                    this.messages.push({ role: m.role, content: m.content });
+                    this.renderStoredMessage(m.role, m.content);
+                }
+                this.renderedMessageCount = data.messages.length;
+                this.persistMessagesCache();
+            }
+        }
+        catch {
+            // ignore poll errors
+        }
+    }
+    async escalateToHuman() {
+        if (!this.siteId || !this.conversationId) {
+            this.addBubble('Send a message first, then we can connect you with our team.', 'system');
+            return;
+        }
+        try {
+            const res = await fetch(`${API_URL}/v1/chat/escalate`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    siteId: this.siteId,
+                    visitorId: this.visitorId,
+                    conversationId: this.conversationId,
+                }),
+            });
+            if (res.ok) {
+                this.conversationStatus = 'escalated';
+                this.startHumanPolling();
+                await this.pollHumanReplies();
+            }
+        }
+        catch {
+            this.addBubble('Could not reach support right now. Please try again.', 'system');
         }
     }
     resolveVisitorId() {
@@ -69,6 +263,7 @@ export class NexusChatElement extends HTMLElement {
             id = crypto.randomUUID();
             localStorage.setItem(key, id);
         }
+        this.anonymousVisitorId = id;
         return id;
     }
     conversationKey() {
@@ -117,9 +312,14 @@ export class NexusChatElement extends HTMLElement {
             const res = await fetch(`${API_URL}/v1/chat/history?${params}`);
             if (res.ok) {
                 const data = (await res.json());
+                this.conversationStatus = data.status;
                 for (const m of data.messages) {
                     this.messages.push({ role: m.role, content: m.content });
                     this.renderStoredMessage(m.role, m.content);
+                }
+                this.renderedMessageCount = data.messages.length;
+                if (this.conversationStatus === 'escalated' || this.conversationStatus === 'human') {
+                    this.startHumanPolling();
                 }
                 this.persistMessagesCache();
                 return;
@@ -142,6 +342,7 @@ export class NexusChatElement extends HTMLElement {
                 this.messages.push(m);
                 this.renderStoredMessage(m.role, m.content);
             }
+            this.renderedMessageCount = cached.length;
         }
         catch {
             localStorage.removeItem(this.messagesCacheKey());
@@ -177,7 +378,7 @@ export class NexusChatElement extends HTMLElement {
           height: 56px;
           border-radius: 50%;
           border: none;
-          background: linear-gradient(135deg, #059669, #047857);
+          background: linear-gradient(135deg, var(--nexus-primary, #059669), var(--nexus-primary-dark, #047857));
           color: white;
           cursor: pointer;
           box-shadow: 0 8px 24px rgba(5, 150, 105, 0.45);
@@ -240,7 +441,7 @@ export class NexusChatElement extends HTMLElement {
         .status { font-size: 11px; color: #34d399; font-weight: 500; white-space: nowrap; }
         .msgs { flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 8px; }
         .bubble { max-width: 92%; padding: 10px 14px; border-radius: 12px; line-height: 1.5; word-break: break-word; }
-        .user { align-self: flex-end; background: #059669; color: white; border-bottom-right-radius: 4px; }
+        .user { align-self: flex-end; background: var(--nexus-primary, #059669); color: white; border-bottom-right-radius: 4px; }
         .assistant { align-self: flex-start; background: #27272a; border-bottom-left-radius: 4px; }
         .assistant .md p { margin: 0 0 10px; }
         .assistant .md p:last-child { margin-bottom: 0; }
@@ -279,8 +480,18 @@ export class NexusChatElement extends HTMLElement {
         footer { border-top: 1px solid #27272a; padding: 10px; display: flex; gap: 8px; flex-direction: column; }
         form { display: flex; gap: 8px; }
         input { flex: 1; border: 1px solid #3f3f46; background: #18181b; color: #fafafa; border-radius: 8px; padding: 8px 10px; outline: none; }
-        input:focus { border-color: #059669; }
-        button[type=submit] { background: #059669; color: white; border: none; border-radius: 8px; padding: 8px 14px; cursor: pointer; font-weight: 600; }
+        input:focus { border-color: var(--nexus-primary, #059669); }
+        button[type=submit] { background: var(--nexus-primary, #059669); color: white; border: none; border-radius: 8px; padding: 8px 14px; cursor: pointer; font-weight: 600; }
+        .escalate-btn {
+          font-size: 10px;
+          color: #a1a1aa;
+          background: none;
+          border: 1px solid #3f3f46;
+          border-radius: 6px;
+          padding: 4px 8px;
+          cursor: pointer;
+        }
+        .escalate-btn:hover { color: #fafafa; border-color: #52525b; }
         .trace-toggle { font-size: 11px; color: #71717a; background: none; border: none; cursor: pointer; text-align: left; padding: 0; }
         .trace { font-size: 10px; font-family: monospace; color: #71717a; max-height: 80px; overflow-y: auto; background: #18181b; padding: 6px; border-radius: 6px; display: none; }
         .trace.open { display: block; }
@@ -320,10 +531,11 @@ export class NexusChatElement extends HTMLElement {
         <div class="panel">
           <header>
             <div class="header-left">
-              <span>Nexus Assistant</span>
-              <span class="status">● Online</span>
+              <span data-title>Nexus Assistant</span>
+              <span class="status" data-subtitle>● Online</span>
             </div>
             <div class="header-actions">
+              <button type="button" class="escalate-btn" data-escalate>Human</button>
               <button type="button" class="icon-btn" data-minimize aria-label="Minimize chat">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
                   <path d="M5 12h14"/>

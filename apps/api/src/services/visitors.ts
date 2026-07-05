@@ -5,9 +5,13 @@ export async function getWidgetConversationHistory(
   siteId: string,
   visitorId: string,
   conversationId: string,
-): Promise<{ conversationId: string; messages: Array<{ role: string; content: string }> } | null> {
-  const conv = await queryOne<{ id: string }>(
-    `SELECT c.id FROM conversations c
+): Promise<{
+  conversationId: string;
+  status: string;
+  messages: Array<{ role: string; content: string }>;
+} | null> {
+  const conv = await queryOne<{ id: string; status: string }>(
+    `SELECT c.id, c.status FROM conversations c
      WHERE c.id = $1 AND c.site_id = $2 AND c.visitor_id = $3`,
     [conversationId, siteId, visitorId],
   );
@@ -18,7 +22,7 @@ export async function getWidgetConversationHistory(
     .filter((m) => m.role === 'user' || m.role === 'assistant' || m.role === 'system')
     .map((m) => ({ role: m.role, content: m.content ?? '' }));
 
-  return { conversationId, messages };
+  return { conversationId, status: conv.status, messages };
 }
 
 export interface VisitorSummary {

@@ -82,6 +82,7 @@ const updateSiteSchema = z.object({
   domain: z.string().min(1).optional(),
   backendBaseUrl: z.string().url().optional(),
   openapiSpecUrl: z.string().url().nullable().optional(),
+  widgetTheme: z.record(z.unknown()).optional(),
   reingest: z.boolean().optional(),
 });
 
@@ -116,6 +117,10 @@ router.patch('/:siteId', requireTenantAuth, async (req, res) => {
   if (body.openapiSpecUrl !== undefined) {
     sets.push(`openapi_spec_url = $${i++}`);
     params.push(body.openapiSpecUrl);
+  }
+  if (body.widgetTheme !== undefined) {
+    sets.push(`widget_theme = $${i++}`);
+    params.push(JSON.stringify(body.widgetTheme));
   }
 
   if (sets.length === 0 && !body.reingest) {

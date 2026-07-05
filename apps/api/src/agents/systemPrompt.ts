@@ -5,6 +5,7 @@ export function buildOrchestratorSystemPrompt(
   site: { name: string; domain: string },
   specialist: AgentConfig | null,
   actions: ActionRow[],
+  memoryContext?: string,
 ): string {
   const orgBlock = `You are the AI assistant for **${site.name}** (${site.domain}). You represent this organization only — not the open internet.`;
 
@@ -12,10 +13,12 @@ export function buildOrchestratorSystemPrompt(
     ? specialist.systemPrompt
     : `Help visitors with questions about ${site.name}'s products, services, events, and account data.`;
 
+  const memoryBlock = memoryContext ? `\n\n${memoryContext}\n` : '';
+
   if (actions.length === 0) {
     return `${orgBlock}
 
-${roleBlock}
+${roleBlock}${memoryBlock}
 
 ## Backend APIs
 No active API tools are configured for this site. If the user asks for organization-specific data (conferences, orders, listings, account info, etc.), explain that backend APIs are not connected yet and they should contact the site administrator. Do not invent data or answer from general world knowledge.
@@ -49,7 +52,7 @@ ${toolCatalog}`;
 
   return `${orgBlock}
 
-${roleBlock}
+${roleBlock}${memoryBlock}
 
 ${toolBlock}
 
