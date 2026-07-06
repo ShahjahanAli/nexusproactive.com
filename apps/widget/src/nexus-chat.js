@@ -17,6 +17,7 @@ export class NexusChatElement extends HTMLElement {
     lastActivityAt = Date.now();
     renderedMessageCount = 0;
     anonymousVisitorId;
+    aiLocked = false;
     constructor() {
         super();
         this.shadow = this.attachShadow({ mode: 'open' });
@@ -43,17 +44,44 @@ export class NexusChatElement extends HTMLElement {
         this.shadow.querySelector('[data-toggle]')?.addEventListener('click', () => this.toggle());
         this.shadow.querySelector('[data-escalate]')?.addEventListener('click', () => void this.escalateToHuman());
         this.shadow.querySelector('form')?.addEventListener('submit', (e) => this.onSubmit(e));
-        this.shadow.querySelector('input')?.addEventListener('input', () => {
+        const composer = this.shadow.querySelector('[data-composer]');
+        composer?.addEventListener('input', () => {
             this.lastActivityAt = Date.now();
+            this.autoResizeComposer(composer);
         });
+        composer?.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                this.shadow.querySelector('form')?.requestSubmit();
+            }
+        });
+    }
+    autoResizeComposer(el) {
+        el.style.height = 'auto';
+        el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
+    }
+    composerEl() {
+        return this.shadow.querySelector('[data-composer]');
+    }
+    setComposerEnabled(enabled) {
+        const composer = this.composerEl();
+        const submit = this.shadow.querySelector('button[type=submit]');
+        if (composer) {
+            composer.disabled = !enabled;
+            composer.placeholder = enabled
+                ? 'Ask anything… (Shift+Enter for new line)'
+                : 'Chat handed off — use WhatsApp or wait for our team';
+        }
+        if (submit)
+            submit.disabled = !enabled;
     }
     setMinimized(minimized) {
         this.minimized = minimized;
         const root = this.shadow.querySelector('.root');
         root?.classList.toggle('minimized', minimized);
         if (!minimized) {
-            const input = this.shadow.querySelector('input');
-            input?.focus();
+            const composer = this.composerEl();
+            composer?.focus();
         }
     }
     static get observedAttributes() {
@@ -62,6 +90,9 @@ export class NexusChatElement extends HTMLElement {
     attributeChangedCallback(name, old, value) {
         if (name === 'site-id' && value) {
             this.siteId = value;
+            if (!this.visitorId) {
+                this.visitorId = this.resolveVisitorId();
+            }
             this.conversationId = this.loadConversationId();
             void this.restoreSession();
         }
@@ -297,7 +328,7 @@ export class NexusChatElement extends HTMLElement {
         localStorage.setItem(this.messagesCacheKey(), JSON.stringify(this.messages));
     }
     async restoreSession() {
-        if (!this.siteId || !this.conversationId)
+        if (!this.siteId || !this.conversationId || !this.visitorId)
             return;
         const msgs = this.shadow.querySelector('[data-msgs]');
         if (msgs)
@@ -319,6 +350,8 @@ export class NexusChatElement extends HTMLElement {
                 }
                 this.renderedMessageCount = data.messages.length;
                 if (this.conversationStatus === 'escalated' || this.conversationStatus === 'human') {
+                    this.aiLocked = true;
+                    this.setComposerEnabled(true);
                     this.startHumanPolling();
                 }
                 this.persistMessagesCache();
@@ -441,7 +474,7 @@ export class NexusChatElement extends HTMLElement {
         .status { font-size: 11px; color: #34d399; font-weight: 500; white-space: nowrap; }
         .msgs { flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 8px; }
         .bubble { max-width: 92%; padding: 10px 14px; border-radius: 12px; line-height: 1.5; word-break: break-word; }
-        .user { align-self: flex-end; background: var(--nexus-primary, #059669); color: white; border-bottom-right-radius: 4px; }
+        .user { align-self: flex-end; background: var(--nexus-primary, #059669); color: white; border-bottom-right-radius: 4px; white-space: pre-wrap; }
         .assistant { align-self: flex-start; background: #27272a; border-bottom-left-radius: 4px; }
         .assistant .md p { margin: 0 0 10px; }
         .assistant .md p:last-child { margin-bottom: 0; }
@@ -478,10 +511,53 @@ export class NexusChatElement extends HTMLElement {
         .undo { align-self: flex-start; font-size: 12px; }
         .undo button { background: #27272a; border: 1px solid #52525b; color: #fafafa; padding: 4px 10px; border-radius: 6px; cursor: pointer; }
         footer { border-top: 1px solid #27272a; padding: 10px; display: flex; gap: 8px; flex-direction: column; }
-        form { display: flex; gap: 8px; }
-        input { flex: 1; border: 1px solid #3f3f46; background: #18181b; color: #fafafa; border-radius: 8px; padding: 8px 10px; outline: none; }
-        input:focus { border-color: var(--nexus-primary, #059669); }
-        button[type=submit] { background: var(--nexus-primary, #059669); color: white; border: none; border-radius: 8px; padding: 8px 14px; cursor: pointer; font-weight: 600; }
+        form { display: flex; gap: 8px; align-items: flex-end; }
+        textarea[data-composer] {
+          flex: 1;
+          border: 1px solid #3f3f46;
+          background: #18181b;
+          color: #fafafa;
+          border-radius: 8px;
+          padding: 8px 10px;
+          outline: none;
+          resize: none;
+          min-height: 44px;
+          max-height: 120px;
+          line-height: 1.45;
+          font-family: inherit;
+          font-size: 14px;
+          white-space: pre-wrap;
+          overflow-wrap: anywhere;
+          word-break: break-word;
+          overflow-x: hidden;
+          overflow-y: auto;
+          field-sizing: content;
+        }
+        textarea[data-composer]:focus { border-color: var(--nexus-primary, #059669); }
+        textarea[data-composer]:disabled { opacity: 0.65; cursor: not-allowed; }
+        button[type=submit] { background: var(--nexus-primary, #059669); color: white; border: none; border-radius: 8px; padding: 8px 14px; cursor: pointer; font-weight: 600; flex-shrink: 0; }
+        button[type=submit]:disabled { opacity: 0.5; cursor: not-allowed; }
+        .whatsapp-card {
+          align-self: center;
+          max-width: 95%;
+          padding: 12px 14px;
+          border-radius: 10px;
+          border: 1px solid #059669;
+          background: #052e1f;
+          text-align: center;
+        }
+        .whatsapp-card p { margin: 0 0 10px; font-size: 13px; line-height: 1.5; color: #d1fae5; }
+        .whatsapp-btn {
+          display: inline-block;
+          padding: 8px 14px;
+          border-radius: 8px;
+          background: #25d366;
+          color: #052e1f;
+          font-weight: 700;
+          font-size: 13px;
+          text-decoration: none;
+        }
+        .whatsapp-btn:hover { filter: brightness(1.05); }
         .escalate-btn {
           font-size: 10px;
           color: #a1a1aa;
@@ -548,7 +624,7 @@ export class NexusChatElement extends HTMLElement {
             <button type="button" class="trace-toggle" data-toggle>See how this was handled</button>
             <div class="trace" data-trace></div>
             <form>
-              <input type="text" placeholder="Ask anything…" autocomplete="off" required />
+              <textarea data-composer rows="2" placeholder="Ask anything… (Shift+Enter for new line)" autocomplete="off" required></textarea>
               <button type="submit">Send</button>
             </form>
           </footer>
@@ -604,15 +680,49 @@ export class NexusChatElement extends HTMLElement {
             traceEl.textContent = this.trace.map((t) => `[${t.type}] ${t.agent ?? ''} ${t.detail ?? ''}`).join('\n') || 'No trace yet';
         }
     }
+    renderGuardrailCard(payload) {
+        const message = String(payload.message ?? '');
+        const whatsappUrl = payload.whatsappUrl ? String(payload.whatsappUrl) : '';
+        const card = document.createElement('div');
+        card.className = 'whatsapp-card';
+        card.innerHTML = `
+      <p>${this.escape(message)}</p>
+      ${whatsappUrl ? `<a class="whatsapp-btn" href="${this.escapeAttr(whatsappUrl)}" target="_blank" rel="noopener noreferrer">Continue on WhatsApp</a>` : ''}
+    `;
+        this.msgsEl().appendChild(card);
+        this.msgsEl().scrollTop = this.msgsEl().scrollHeight;
+    }
+    escapeAttr(text) {
+        return text
+            .replace(/&/g, '&amp;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;');
+    }
+    applyGuardrailHandoff(payload) {
+        this.aiLocked = true;
+        this.conversationStatus = 'escalated';
+        this.renderGuardrailCard(payload);
+        this.startHumanPolling();
+        this.setComposerEnabled(true);
+    }
     async onSubmit(e) {
         e.preventDefault();
         const form = e.target;
-        const input = form.querySelector('input');
-        const text = input.value.trim();
+        const composer = form.querySelector('[data-composer]');
+        const text = composer.value.trim();
         if (!text || !this.siteId)
             return;
-        input.value = '';
-        input.disabled = true;
+        if (this.aiLocked && this.conversationStatus !== 'escalated' && this.conversationStatus !== 'human') {
+            return;
+        }
+        composer.value = '';
+        composer.style.height = 'auto';
+        composer.disabled = true;
+        const submitBtn = form.querySelector('button[type=submit]');
+        if (submitBtn)
+            submitBtn.disabled = true;
         this.messages.push({ role: 'user', content: text });
         this.addBubble(this.escape(text), 'user');
         this.persistMessagesCache();
@@ -678,6 +788,10 @@ export class NexusChatElement extends HTMLElement {
                         this.hideTyping();
                         this.addBubble(this.escape(String(payload.message)), 'system');
                     }
+                    else if (payload.type === 'guardrail') {
+                        this.hideTyping();
+                        this.applyGuardrailHandoff(payload);
+                    }
                     else if (payload.type === 'done') {
                         if (assistantEl && assistantText) {
                             this.setAssistantContent(assistantEl, assistantText, false);
@@ -698,8 +812,8 @@ export class NexusChatElement extends HTMLElement {
             this.addBubble('Connection error. Please try again.', 'system');
         }
         this.hideTyping();
-        input.disabled = false;
-        input.focus();
+        this.setComposerEnabled(true);
+        this.composerEl()?.focus();
     }
     renderApproval(payload) {
         const el = document.createElement('div');

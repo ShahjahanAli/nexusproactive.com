@@ -562,11 +562,17 @@ export class NexusChatElement extends HTMLElement {
           padding: 8px 10px;
           outline: none;
           resize: none;
-          min-height: 40px;
+          min-height: 44px;
           max-height: 120px;
           line-height: 1.45;
           font-family: inherit;
           font-size: 14px;
+          white-space: pre-wrap;
+          overflow-wrap: anywhere;
+          word-break: break-word;
+          overflow-x: hidden;
+          overflow-y: auto;
+          field-sizing: content;
         }
         textarea[data-composer]:focus { border-color: var(--nexus-primary, #059669); }
         textarea[data-composer]:disabled { opacity: 0.65; cursor: not-allowed; }
@@ -659,7 +665,7 @@ export class NexusChatElement extends HTMLElement {
             <button type="button" class="trace-toggle" data-toggle>See how this was handled</button>
             <div class="trace" data-trace></div>
             <form>
-              <textarea data-composer rows="1" placeholder="Ask anything… (Shift+Enter for new line)" autocomplete="off" required></textarea>
+              <textarea data-composer rows="2" placeholder="Ask anything… (Shift+Enter for new line)" autocomplete="off" required></textarea>
               <button type="submit">Send</button>
             </form>
           </footer>
