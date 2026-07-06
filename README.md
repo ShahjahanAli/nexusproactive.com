@@ -295,6 +295,8 @@ npm run db:make:migration
 
 See [RUNBOOK.md](RUNBOOK.md) for operations: JWT rotation, forced re-ingest, Stripe webhook replay, and more.
 
+**Production on a VM:** [docs/DEPLOY-PM2.md](docs/DEPLOY-PM2.md) — PM2 setup for API + Dashboard from the monorepo root.
+
 ---
 
 ## Environment variables

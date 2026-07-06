@@ -15,7 +15,13 @@
     "db:migrate:status": "npm run db:migrate:status -w @nexus/api",
     "db:baseline": "npm run db:baseline -w @nexus/api",
     "db:make:migration": "npm run db:make:migration -w @nexus/api",
-    "dev:widget": "npm run dev -w @nexus/widget"
+    "dev:widget": "npm run dev -w @nexus/widget",
+    "start:api": "npm run start -w @nexus/api",
+    "start:dashboard": "npm run start -w @nexus/dashboard",
+    "pm2:start": "pm2 start ecosystem.config.cjs --env production",
+    "pm2:stop": "pm2 stop ecosystem.config.cjs",
+    "pm2:restart": "pm2 restart ecosystem.config.cjs --env production",
+    "pm2:logs": "pm2 logs"
   },
   "engines": {
     "node": ">=20"
