@@ -34,12 +34,16 @@ export function createApp() {
   app.use(requestLogger);
   app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
 
-  app.use(
-    cors({
-      origin: config.corsOrigin,
-      credentials: true,
-    }),
-  );
+  app.use((req, res, next) => {
+    const isWidgetPublic =
+      req.path.startsWith('/v1/chat') ||
+      req.path.startsWith('/v1/widget') ||
+      req.path.startsWith('/widget');
+    if (isWidgetPublic) {
+      return cors({ origin: '*', credentials: false })(req, res, next);
+    }
+    return cors({ origin: config.corsOrigin, credentials: true })(req, res, next);
+  });
 
   app.use('/webhooks', stripeWebhooksRoutes);
 

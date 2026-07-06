@@ -94,6 +94,9 @@ export class NexusChatElement extends HTMLElement {
   attributeChangedCallback(name: string, old: string | null, value: string | null) {
     if (name === 'site-id' && value) {
       this.siteId = value;
+      if (!this.visitorId) {
+        this.visitorId = this.resolveVisitorId();
+      }
       this.conversationId = this.loadConversationId();
       void this.restoreSession();
     }
@@ -331,7 +334,7 @@ export class NexusChatElement extends HTMLElement {
   }
 
   private async restoreSession() {
-    if (!this.siteId || !this.conversationId) return;
+    if (!this.siteId || !this.conversationId || !this.visitorId) return;
 
     const msgs = this.shadow.querySelector('[data-msgs]');
     if (msgs) msgs.innerHTML = '';

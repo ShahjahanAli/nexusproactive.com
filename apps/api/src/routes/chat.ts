@@ -7,6 +7,7 @@ import { updateVisitorContext, evaluateProactiveTriggers } from '../services/pro
 import { mergeVisitorIdentity } from '../services/visitorMemory';
 import { dispatchWebhook } from '../services/webhooks';
 import { getSiteTenantId } from '../services/conversationService';
+import { getSiteById } from '../services/actionExecutor';
 
 const router = Router();
 
@@ -79,6 +80,12 @@ router.post('/context', async (req, res) => {
   });
   const body = schema.parse(req.body);
 
+  const site = await getSiteById(body.siteId);
+  if (!site) {
+    res.status(404).json({ error: 'Site not found' });
+    return;
+  }
+
   await updateVisitorContext(body);
 
   const proactive = await evaluateProactiveTriggers(body);
@@ -107,6 +114,13 @@ router.post('/merge-visitor', async (req, res) => {
     toVisitorId: z.string().min(1),
   });
   const body = schema.parse(req.body);
+
+  const site = await getSiteById(body.siteId);
+  if (!site) {
+    res.status(404).json({ error: 'Site not found', merged: false });
+    return;
+  }
+
   const result = await mergeVisitorIdentity(
     body.siteId,
     body.fromVisitorId,
