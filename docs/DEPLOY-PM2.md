@@ -207,7 +207,7 @@ Both processes use the root `.env` (API loads it explicitly; set dashboard vars 
 |-------|-----|
 | `nexus-api` crashes on start | Run `npm run build -w @nexus/api`; check `pm2 logs nexus-api` |
 | Dashboard 404 / won't start | Run `npm run build -w @nexus/dashboard` first (`next build`) |
-| PM2 `Script not found: .../apps/dashboard/node_modules/next` | npm hoists `next` to root — pull latest `ecosystem.config.cjs` and `pm2 delete nexus-dashboard`; `pm2 start ecosystem.config.cjs --env production` |
+| PM2 `Script not found` / dashboard won't bind to 6100 | From repo root: `npm ci`, `npm run build -w @nexus/dashboard`, verify `ls node_modules/next/dist/bin/next`, then `pm2 delete all && pm2 start ecosystem.config.cjs --env production` |
 | Widget script 404 | Run `npm run build -w @nexus/widget`; restart API |
 | CORS errors | Set `CORS_ORIGIN` to your dashboard URL (no trailing slash) |
 | Wrong API in dashboard UI | Rebuild dashboard after changing `NEXT_PUBLIC_API_URL` |
