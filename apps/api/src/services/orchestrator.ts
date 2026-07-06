@@ -47,8 +47,12 @@ import {
   formatMemoriesForPrompt,
   getVisitorMemories,
   resolveVisitorId,
-  addVisitorMemory,
 } from './visitorMemory';
+import {
+  finalizeLeadCapture,
+  looksLikeContactSubmission,
+  tryAutoSaveContactFromMessage,
+} from './contactLeadHandler';
 import {
   contactCollectionToolDefinition,
   formatContactForPrompt,
@@ -208,6 +212,39 @@ export async function* runOrchestrator(input: {
       await incrementUsage(tenantId, 'conversations_count');
     }
 
+    const widgetConfig = await getWidgetConfig(input.siteId);
+    const contactCollection =
+      widgetConfig.theme.contactCollectionEnabled !== false;
+
+    let contactJustSaved = false;
+    if (contactCollection) {
+      const priorMessages = (await getConversationMessages(conversation.id)).filter(
+        (m) => m.role !== 'system',
+      );
+      const lastAssistant = [...priorMessages]
+        .reverse()
+        .find((m) => m.role === 'assistant');
+      const recentAssistantText = lastAssistant?.content ?? '';
+
+      const autoSaved = await tryAutoSaveContactFromMessage(
+        input.siteId,
+        visitorId,
+        input.message,
+        recentAssistantText,
+      );
+      if (autoSaved) {
+        await finalizeLeadCapture({
+          siteId: input.siteId,
+          visitorId,
+          conversationId: conversation.id,
+          tenantId,
+          contact: autoSaved.contact,
+          created: autoSaved.created,
+        });
+        contactJustSaved = true;
+      }
+    }
+
     yield statusEvent('thinking', 'Understanding your question…');
 
     let sessionTokens = 0;
@@ -259,9 +296,8 @@ export async function* runOrchestrator(input: {
     const tools = actionsToTools(scopedActions);
     const actionMap = new Map(scopedActions.map((a) => [a.operation_id, a]));
 
-    const widgetConfig = await getWidgetConfig(input.siteId);
-    const contactCollection =
-      widgetConfig.theme.contactCollectionEnabled !== false;
+    const contactTurn =
+      contactCollection && looksLikeContactSubmission(input.message);
     const allTools = contactCollection
       ? [...tools, contactCollectionToolDefinition()]
       : tools;
@@ -282,9 +318,13 @@ export async function* runOrchestrator(input: {
     const contact = contactCollection
       ? await getVisitorContact(input.siteId, visitorId)
       : null;
-    const contactContext = contactCollection
+    let contactContext = contactCollection
       ? formatContactForPrompt(contact)
       : undefined;
+    if (contactJustSaved && contactContext) {
+      contactContext +=
+        '\n\n(Contact details were saved automatically this turn — confirm them to the visitor; do not call save_visitor_contact again unless they want to update.)';
+    }
 
     const history = trimHistory(
       (await getConversationMessages(conversation.id)).filter((m) => m.role !== 'system'),
@@ -322,7 +362,10 @@ export async function* runOrchestrator(input: {
       const completion = await chatCompletion({
         messages: llmMessages,
         tools: allTools.length > 0 ? allTools : undefined,
-        toolChoice: iterations === 1 && !smallTalk && tools.length > 0 ? 'required' : 'auto',
+        toolChoice:
+          iterations === 1 && !smallTalk && tools.length > 0 && !contactTurn
+            ? 'required'
+            : 'auto',
         signal: input.signal,
       });
       trackTokens(completion.tokens_used);
@@ -335,7 +378,11 @@ export async function* runOrchestrator(input: {
 
         for (const toolCall of completion.tool_calls) {
           const opId = toolCall.function.name;
-          yield statusEvent('fetching', `Looking up ${opId.replace(/_/g, ' ')}…`);
+          if (opId === SAVE_VISITOR_CONTACT_TOOL) {
+            yield statusEvent('saving', 'Saving your contact details…');
+          } else {
+            yield statusEvent('fetching', `Looking up ${opId.replace(/_/g, ' ')}…`);
+          }
           const action = actionMap.get(opId);
           let args: Record<string, unknown> = {};
           try {
@@ -358,30 +405,14 @@ export async function* runOrchestrator(input: {
                 consent: args.consent === true,
                 source: 'chat',
               });
-              const label = [saved.contact.name, saved.contact.email ?? saved.contact.phone]
-                .filter(Boolean)
-                .join(' · ');
-              if (label) {
-                await addVisitorMemory(
-                  input.siteId,
-                  visitorId,
-                  `Contact on file: ${label}`,
-                  'contact',
-                  'ai',
-                );
-              }
-              if (tenantId) {
-                void dispatchWebhook(
-                  tenantId,
-                  saved.created ? 'lead.created' : 'lead.updated',
-                  {
-                    siteId: input.siteId,
-                    visitorId,
-                    conversationId: conversation.id,
-                    contact: saved.contact,
-                  },
-                );
-              }
+              await finalizeLeadCapture({
+                siteId: input.siteId,
+                visitorId,
+                conversationId: conversation.id,
+                tenantId,
+                contact: saved.contact,
+                created: saved.created,
+              });
               contactResult = { ok: true, saved: true, contactId: saved.contact.id };
             } catch (err) {
               contactResult = {
@@ -447,7 +478,7 @@ export async function* runOrchestrator(input: {
       }
 
       // First pass skipped tools — force API lookup before answering from general knowledge
-      if (iterations === 1 && tools.length > 0 && !smallTalk) {
+      if (iterations === 1 && tools.length > 0 && !smallTalk && !contactTurn) {
         llmMessages.push({
           role: 'system',
           content:

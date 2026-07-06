@@ -34,10 +34,15 @@ PUBLIC_API_URL=https://api.yourdomain.com
 NEXT_PUBLIC_API_URL=https://api.yourdomain.com
 DASHBOARD_URL=https://app.yourdomain.com
 CORS_ORIGIN=https://app.yourdomain.com
+
+# Admin dates + analytics (Bangladesh = Asia/Dhaka, UTC+6)
+DISPLAY_TIMEZONE=Asia/Dhaka
+NEXT_PUBLIC_DISPLAY_TIMEZONE=Asia/Dhaka
 ```
 
 > **Embed snippets** use `PUBLIC_API_URL` at **runtime** (no rebuild needed when only that changes).  
-> `NEXT_PUBLIC_API_URL` is still baked in at **build** time for other client-side dashboard calls — rebuild if you change it.
+> `NEXT_PUBLIC_API_URL` is still baked in at **build** time for other client-side dashboard calls — rebuild if you change it.  
+> Set **both** `DISPLAY_TIMEZONE` and `NEXT_PUBLIC_DISPLAY_TIMEZONE` to the same IANA zone; rebuild dashboard after changing the public one.
 
 ## 2. Build
 

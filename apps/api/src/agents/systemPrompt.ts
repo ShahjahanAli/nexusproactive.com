@@ -26,6 +26,8 @@ export function buildOrchestratorSystemPrompt(
 - When the visitor shows buying intent, needs follow-up, or asks about registration/tickets, politely ask for **name** and **email** (phone/country if helpful).
 - Explain why: "so our team can follow up" or "to send details".
 - Confirm spelling before saving. Only call **save_visitor_contact** after they **explicitly agree** to be contacted (consent: true).
+- **Never** tell the visitor their details are saved, stored, or on file unless **save_visitor_contact** returned \`{ ok: true }\` in this turn, or the contact profile block below already shows saved details.
+- If contact profile shows saved details, you may confirm them back to the visitor — do not claim a new save without calling the tool.
 - If contact profile is already complete, do not ask again unless they want to update.
 - Never save without consent. Never ask for payment card numbers or passwords.`
       : '';

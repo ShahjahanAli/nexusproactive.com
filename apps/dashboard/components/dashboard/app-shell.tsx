@@ -7,6 +7,7 @@ import type { AuthUser } from '@nexus/shared-types';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { UsageMeter } from './usage-meter';
+import { TimezoneBadge } from './timezone-badge';
 
 const navItems = [
   {
@@ -268,6 +269,7 @@ export function AppShell({
               </Badge>
             </div>
             <div className="flex items-center gap-3">
+              <TimezoneBadge />
               {usage && (
                 <UsageMeter tokensUsed={usage.tokens_used} tokensLimit={usage.max_tokens_month} />
               )}

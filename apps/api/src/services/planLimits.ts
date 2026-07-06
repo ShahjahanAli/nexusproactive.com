@@ -6,15 +6,11 @@ import {
   PlanLimits,
 } from '@nexus/shared-types';
 import { queryOne } from '../db';
+import { currentPeriodStart } from '../lib/timezone';
 
 interface TenantRow {
   plan: Plan;
   plan_limits: PlanLimits;
-}
-
-function currentPeriodStart(): string {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
 }
 
 async function getTenantPlan(tenantId: string): Promise<{ plan: Plan; limits: PlanLimits }> {

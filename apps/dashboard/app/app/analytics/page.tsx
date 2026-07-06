@@ -5,6 +5,7 @@ import { StatCard } from '@/components/dashboard/ui/stat-card';
 import { Panel, PanelBody, PanelHeader } from '@/components/dashboard/ui/panel';
 import { ProgressBar } from '@/components/dashboard/ui/progress-bar';
 import { Badge } from '@/components/dashboard/ui/badge';
+import { formatWeekday } from '@/lib/datetime';
 
 interface Analytics {
   period: { start: string; label: string };
@@ -180,7 +181,7 @@ export default async function AnalyticsPage() {
                       title={`${day.conversations} conversations`}
                     />
                     <span className="font-mono text-[8px] text-zinc-600">
-                      {new Date(day.date).toLocaleDateString('en-US', { weekday: 'short' })}
+                      {formatWeekday(day.date)}
                     </span>
                   </div>
                 );

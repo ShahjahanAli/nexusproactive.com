@@ -2,6 +2,7 @@ import { apiFetch } from '@/lib/server-api';
 import { PageHeader } from '@/components/dashboard/ui/page-header';
 import { Panel, PanelBody } from '@/components/dashboard/ui/panel';
 import { Badge } from '@/components/dashboard/ui/badge';
+import { formatDateTime } from '@/lib/datetime';
 
 export default async function ConversationDetailPage({
   params,
@@ -33,6 +34,9 @@ export default async function ConversationDetailPage({
                 {m.agent_name && (
                   <span className="font-mono text-[10px] text-zinc-600">{m.agent_name}</span>
                 )}
+                <span className="font-mono text-[10px] text-zinc-600">
+                  {formatDateTime(m.created_at)}
+                </span>
               </div>
               <p className="mt-2 text-sm text-zinc-300">{m.content}</p>
             </div>

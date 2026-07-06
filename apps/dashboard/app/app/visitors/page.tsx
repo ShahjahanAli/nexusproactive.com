@@ -5,6 +5,8 @@ import { Panel, PanelBody, PanelHeader } from '@/components/dashboard/ui/panel';
 import { EmptyState } from '@/components/dashboard/ui/empty-state';
 import { Badge } from '@/components/dashboard/ui/badge';
 
+import { formatDateTime } from '@/lib/datetime';
+
 interface VisitorRow {
   visitor_id: string;
   conversations: number;
@@ -22,7 +24,7 @@ function formatTokens(n: number) {
 }
 
 function formatWhen(iso: string) {
-  return new Date(iso).toLocaleString();
+  return formatDateTime(iso);
 }
 
 export default async function VisitorsPage() {

@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { Panel, PanelBody } from '@/components/dashboard/ui/panel';
 import { Badge } from '@/components/dashboard/ui/badge';
 import { Button, Input } from '@/components/dashboard/ui/button';
+import { formatDateTime } from '@/lib/datetime';
 
 export interface EscalationRow {
   id: string;
@@ -88,7 +89,7 @@ export function EscalationInbox({ escalations }: { escalations: EscalationRow[] 
                 </p>
                 {e.escalated_at && (
                   <p className="font-mono text-[10px] text-zinc-600">
-                    Escalated {new Date(e.escalated_at).toLocaleString()}
+                    Escalated {formatDateTime(e.escalated_at)}
                   </p>
                 )}
               </div>

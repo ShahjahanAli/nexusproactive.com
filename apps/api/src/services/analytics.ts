@@ -1,5 +1,6 @@
 import { query, queryOne } from '../db';
 import { getCurrentUsage, getTenantPlan } from './planLimits';
+import { currentPeriodStart, getDisplayTimezone } from '../lib/timezone';
 
 export interface TenantAnalytics {
   period: { start: string; label: string };
@@ -63,22 +64,19 @@ export interface TenantAnalytics {
   }>;
 }
 
-function periodStart(): string {
-  const d = new Date();
-  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-01`;
-}
-
 export async function getTenantAnalytics(tenantId: string): Promise<TenantAnalytics> {
   const { limits } = await getTenantPlan(tenantId);
   const usage = await getCurrentUsage(tenantId);
-  const start = periodStart();
+  const start = currentPeriodStart();
+  const tz = getDisplayTimezone();
 
   const todayRow = await queryOne<{ conversations: number; tokens: string }>(
     `SELECT COUNT(c.id)::int AS conversations, COALESCE(SUM(c.tokens_used), 0)::bigint AS tokens
      FROM conversations c
      JOIN sites s ON s.id = c.site_id
-     WHERE s.tenant_id = $1 AND c.created_at >= CURRENT_DATE`,
-    [tenantId],
+     WHERE s.tenant_id = $1
+       AND (c.created_at AT TIME ZONE $2)::date = (NOW() AT TIME ZONE $2)::date`,
+    [tenantId, tz],
   );
 
   const totals = await queryOne<{
@@ -116,15 +114,17 @@ export async function getTenantAnalytics(tenantId: string): Promise<TenantAnalyt
         JOIN sites s ON s.id = c.site_id WHERE s.tenant_id = $1) AS unique_total,
        (SELECT COUNT(DISTINCT c.visitor_id)::int FROM conversations c
         JOIN sites s ON s.id = c.site_id
-        WHERE s.tenant_id = $1 AND c.created_at >= DATE_TRUNC('month', CURRENT_DATE)) AS unique_this_month,
+        WHERE s.tenant_id = $1
+          AND c.created_at >= DATE_TRUNC('month', NOW() AT TIME ZONE $2) AT TIME ZONE $2) AS unique_this_month,
        (SELECT COUNT(DISTINCT c.visitor_id)::int FROM conversations c
         JOIN sites s ON s.id = c.site_id
-        WHERE s.tenant_id = $1 AND c.created_at >= CURRENT_DATE) AS unique_today,
+        WHERE s.tenant_id = $1
+          AND (c.created_at AT TIME ZONE $2)::date = (NOW() AT TIME ZONE $2)::date) AS unique_today,
        (SELECT COUNT(DISTINCT c.visitor_id)::int FROM conversations c
         JOIN sites s ON s.id = c.site_id
         JOIN messages m ON m.conversation_id = c.id
         WHERE s.tenant_id = $1 AND m.created_at >= NOW() - INTERVAL '15 minutes') AS active_now`,
-    [tenantId],
+    [tenantId, tz],
   );
 
   const bySite = await query<TenantAnalytics['bySite'][0]>(
@@ -146,12 +146,17 @@ export async function getTenantAnalytics(tenantId: string): Promise<TenantAnalyt
     `SELECT TO_CHAR(d.day, 'YYYY-MM-DD') AS date,
             COUNT(c.id)::int AS conversations,
             COALESCE(SUM(c.tokens_used), 0)::int AS tokens
-     FROM generate_series(CURRENT_DATE - INTERVAL '6 days', CURRENT_DATE, '1 day') AS d(day)
-     LEFT JOIN conversations c ON DATE(c.created_at) = d.day
+     FROM generate_series(
+       ((NOW() AT TIME ZONE $2)::date - 6),
+       (NOW() AT TIME ZONE $2)::date,
+       '1 day'::interval
+     ) AS d(day)
+     LEFT JOIN conversations c
+       ON (c.created_at AT TIME ZONE $2)::date = d.day::date
        AND c.site_id IN (SELECT id FROM sites WHERE tenant_id = $1)
      GROUP BY d.day
      ORDER BY d.day ASC`,
-    [tenantId],
+    [tenantId, tz],
   );
 
   const recentConversations = await query<TenantAnalytics['recentConversations'][0]>(
@@ -178,8 +183,14 @@ export async function getTenantAnalytics(tenantId: string): Promise<TenantAnalyt
     [tenantId],
   );
 
+  const periodLabel = new Intl.DateTimeFormat('en-GB', {
+    timeZone: tz,
+    month: 'long',
+    year: 'numeric',
+  }).format(new Date(`${start}T12:00:00Z`));
+
   return {
-    period: { start, label: new Date(start).toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) },
+    period: { start, label: periodLabel },
     usage: {
       conversations_count: usage.conversations_count,
       tokens_used: usage.tokens_used,

@@ -5,7 +5,7 @@ import { PageHeader } from '@/components/dashboard/ui/page-header';
 import { Panel, PanelBody, PanelHeader } from '@/components/dashboard/ui/panel';
 import { StatCard } from '@/components/dashboard/ui/stat-card';
 import { Badge } from '@/components/dashboard/ui/badge';
-import { VisitorMemoryForm } from '@/components/dashboard/visitor-memory-form';
+import { formatDateTime, formatDate } from '@/lib/datetime';
 
 interface VisitorProfile {
   visitor_id: string;
@@ -112,7 +112,7 @@ export default async function VisitorProfilePage({
                 </div>
                 <p className="mt-1 font-mono text-[10px] text-zinc-600">
                   {c.message_count} messages · {formatTokens(c.tokens_used)} tokens ·{' '}
-                  {new Date(c.created_at).toLocaleString()}
+                  {formatDateTime(c.created_at)}
                 </p>
               </div>
               <span className="font-mono text-[10px] uppercase tracking-wider text-emerald-500">
@@ -188,7 +188,7 @@ export default async function VisitorProfilePage({
                   <li key={m.id} className="rounded border border-zinc-800/80 px-3 py-2 text-sm text-zinc-300">
                     {m.fact}
                     <span className="ml-2 font-mono text-[10px] text-zinc-600">
-                      {m.source} · {new Date(m.created_at).toLocaleDateString()}
+                      {m.source} · {formatDate(m.created_at)}
                     </span>
                   </li>
                 ))}
