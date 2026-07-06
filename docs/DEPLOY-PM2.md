@@ -104,58 +104,93 @@ npm run db:migrate
 pm2 restart ecosystem.config.cjs --env production
 ```
 
-## Nginx reverse proxy (recommended)
+## Nginx reverse proxy
 
-Expose HTTPS on 443 instead of raw ports 5000 / 6100.
+PM2 binds to **localhost only** (`5000` / `6100`). Nginx terminates HTTPS and proxies to those ports.
 
-**API** — `api.yourdomain.com`:
+### Architecture
 
-```nginx
-server {
-    listen 443 ssl http2;
-    server_name api.yourdomain.com;
-
-    # ssl_certificate ...
-
-    location / {
-        proxy_pass http://127.0.0.1:5000;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        # SSE chat streams
-        proxy_buffering off;
-        proxy_cache off;
-    }
-}
+```
+Internet
+   │
+   ├─ https://api.yourdomain.com  ──► Nginx ──► 127.0.0.1:5000  (nexus-api)
+   │      /widget/nexus.js
+   │      /v1/chat  (SSE)
+   │
+   └─ https://app.yourdomain.com  ──► Nginx ──► 127.0.0.1:6100  (nexus-dashboard)
 ```
 
-**Dashboard** — `app.yourdomain.com`:
+### `.env` must match your public URLs
 
-```nginx
-server {
-    listen 443 ssl http2;
-    server_name app.yourdomain.com;
-
-    location / {
-        proxy_pass http://127.0.0.1:6100;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-}
+```env
+NODE_ENV=production
+PUBLIC_API_URL=https://api.yourdomain.com
+NEXT_PUBLIC_API_URL=https://api.yourdomain.com
+DASHBOARD_URL=https://app.yourdomain.com
+CORS_ORIGIN=https://app.yourdomain.com
 ```
 
-Widget embed on client sites:
+Rebuild the dashboard after changing `NEXT_PUBLIC_API_URL`:
+
+```bash
+npm run build -w @nexus/dashboard
+pm2 restart nexus-dashboard
+```
+
+### Install config
+
+Copy the example and edit domains:
+
+```bash
+sudo cp docs/nginx/nexus.conf.example /etc/nginx/sites-available/nexus
+sudo nano /etc/nginx/sites-available/nexus
+sudo ln -sf /etc/nginx/sites-available/nexus /etc/nginx/sites-enabled/
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+Full example: [docs/nginx/nexus.conf.example](nginx/nexus.conf.example)
+
+### SSL with Certbot
+
+```bash
+sudo apt install certbot python3-certbot-nginx
+sudo certbot --nginx -d api.yourdomain.com -d app.yourdomain.com
+```
+
+### DNS records
+
+| Type | Name | Value |
+|------|------|-------|
+| A | `api` | Your VM public IP |
+| A | `app` | Your VM public IP |
+
+### Verify
+
+```bash
+curl -s https://api.yourdomain.com/health
+curl -I https://api.yourdomain.com/widget/nexus.js
+curl -I https://app.yourdomain.com
+```
+
+### Widget embed (client sites)
 
 ```html
 <script>window.NEXUS_API_URL = 'https://api.yourdomain.com';</script>
 <script src="https://api.yourdomain.com/widget/nexus.js" defer></script>
-<nexus-chat site-id="..."></nexus-chat>
+<nexus-chat site-id="YOUR-SITE-UUID"></nexus-chat>
 ```
+
+### Nginx troubleshooting
+
+| Issue | Fix |
+|-------|-----|
+| Chat streams stall / no tokens | Ensure `/v1/chat` has `proxy_buffering off` and long `proxy_read_timeout` (see example config) |
+| CORS errors in dashboard | `CORS_ORIGIN` must exactly match `https://app.yourdomain.com` (no trailing slash) |
+| 502 Bad Gateway | PM2 not running — `pm2 status`; check ports with `curl http://127.0.0.1:5000/health` |
+| Login cookie not set | Use HTTPS on dashboard; `NODE_ENV=production` enables `secure` cookies |
+| Widget 404 | `npm run build -w @nexus/widget` then `pm2 restart nexus-api` |
+
+Do **not** expose ports `5000` / `6100` in the VM firewall — only `80` and `443` need to be public.
 
 ## What PM2 runs
 

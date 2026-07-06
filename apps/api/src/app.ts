@@ -27,6 +27,10 @@ import devMockRoutes from './routes/devMock';
 export function createApp() {
   const app = express();
 
+  if (config.nodeEnv === 'production') {
+    app.set('trust proxy', 1);
+  }
+
   app.use(requestLogger);
   app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
 
