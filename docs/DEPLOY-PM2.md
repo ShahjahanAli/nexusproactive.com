@@ -36,7 +36,8 @@ DASHBOARD_URL=https://app.yourdomain.com
 CORS_ORIGIN=https://app.yourdomain.com
 ```
 
-> **Important:** `NEXT_PUBLIC_API_URL` is baked in at **build** time. Rebuild the dashboard after changing it.
+> **Embed snippets** use `PUBLIC_API_URL` at **runtime** (no rebuild needed when only that changes).  
+> `NEXT_PUBLIC_API_URL` is still baked in at **build** time for other client-side dashboard calls — rebuild if you change it.
 
 ## 2. Build
 

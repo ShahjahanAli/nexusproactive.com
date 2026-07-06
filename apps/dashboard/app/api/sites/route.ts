@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { AUTH_COOKIE, getApiUrl } from '@/lib/config';
+import { buildEmbedSnippet } from '@/lib/embed-snippet';
+import { getPublicApiUrl } from '@/lib/public-api-url';
 
 async function proxyRequest(request: NextRequest, path: string) {
   const cookieStore = await cookies();
@@ -26,5 +28,31 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
-  return proxyRequest(request, '/sites');
+  const cookieStore = await cookies();
+  const token = cookieStore.get(AUTH_COOKIE)?.value;
+
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  const res = await fetch(getApiUrl('/sites'), {
+    method: 'POST',
+    headers,
+    body: await request.text(),
+  });
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    return NextResponse.json(data, { status: res.status });
+  }
+
+  const siteId = data.site?.id as string | undefined;
+  const publicApiUrl = getPublicApiUrl();
+
+  return NextResponse.json({
+    ...data,
+    publicApiUrl,
+    embedSnippet: siteId ? buildEmbedSnippet(siteId, publicApiUrl) : undefined,
+  });
 }

@@ -2,6 +2,7 @@ import { notFound } from 'next/navigation';
 import { apiFetch } from '@/lib/server-api';
 import type { Site } from '@nexus/shared-types';
 import { SiteEditForm } from '@/components/dashboard/site-edit-form';
+import { buildEmbedSnippet } from '@/lib/embed-snippet';
 
 export default async function SiteEditPage({
   params,
@@ -15,5 +16,10 @@ export default async function SiteEditPage({
     notFound();
   }
 
-  return <SiteEditForm site={data.site} />;
+  return (
+    <SiteEditForm
+      site={data.site}
+      embedSnippet={buildEmbedSnippet(data.site.id)}
+    />
+  );
 }

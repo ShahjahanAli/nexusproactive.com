@@ -41,10 +41,14 @@ export default function OnboardingContent() {
     }
 
     const siteId = data.site.id;
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:5000';
-    setEmbedSnippet(
-      `<script>window.NEXUS_API_URL='${apiUrl}';</script>\n<script src="${apiUrl}/widget/nexus.js" defer></script>\n<nexus-chat site-id="${siteId}"></nexus-chat>`,
-    );
+    if (data.embedSnippet) {
+      setEmbedSnippet(data.embedSnippet);
+    } else if (siteId) {
+      const cfg = await fetch(`/api/config?siteId=${encodeURIComponent(siteId)}`)
+        .then((r) => r.json())
+        .catch(() => ({}));
+      if (cfg.embedSnippet) setEmbedSnippet(cfg.embedSnippet);
+    }
   }
 
   async function startCheckout(plan: 'starter' | 'growth' | 'scale') {

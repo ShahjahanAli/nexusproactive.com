@@ -9,16 +9,24 @@ import { Panel, PanelBody, PanelHeader } from '@/components/dashboard/ui/panel';
 import { Button, Input } from '@/components/dashboard/ui/button';
 import { Badge } from '@/components/dashboard/ui/badge';
 
-export function SiteEditForm({ site }: { site: Site }) {
+import { buildEmbedSnippet } from '@/lib/embed-snippet';
+
+export function SiteEditForm({
+  site,
+  embedSnippet: embedSnippetProp,
+}: {
+  site: Site;
+  embedSnippet?: string;
+}) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [reingesting, setReingesting] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const theme = (site.widget_theme ?? {}) as Record<string, string | boolean>;
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:5000';
   const [embedSnippet] = useState(
-    `<script>window.NEXUS_API_URL='${apiUrl}';</script>\n<script src="${apiUrl}/widget/nexus.js" defer></script>\n<nexus-chat site-id="${site.id}"></nexus-chat>`,
+    embedSnippetProp ??
+      `<script>window.NEXUS_API_URL='http://localhost:5000';</script>\n<script src="http://localhost:5000/widget/nexus.js" defer></script>\n<nexus-chat site-id="${site.id}"></nexus-chat>`,
   );
 
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
