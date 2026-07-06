@@ -41,12 +41,27 @@ import {
 } from './scopedJwt';
 import { checkPlanLimit, incrementUsage } from './planLimits';
 import { recordProductSignal } from './productSignals';
-import { isHumanHandled } from './escalations';
+import { isHumanHandled, requestEscalation } from './escalations';
+import { shouldTriggerGuardrail } from './chatGuardrails';
 import {
   formatMemoriesForPrompt,
   getVisitorMemories,
   resolveVisitorId,
+  addVisitorMemory,
 } from './visitorMemory';
+import {
+  contactCollectionToolDefinition,
+  formatContactForPrompt,
+  getVisitorContact,
+  SAVE_VISITOR_CONTACT_TOOL,
+  upsertVisitorContact,
+} from './visitorContacts';
+import { getWidgetConfig } from './widgetConfig';
+import {
+  COMPACT_TOOL_CATALOG_THRESHOLD,
+  trimHistory,
+  truncateToolResult,
+} from './tokenOptimization';
 import { dispatchWebhook } from './webhooks';
 
 const MAX_TOOL_ITERATIONS = 5;
@@ -128,18 +143,18 @@ export async function* runOrchestrator(input: {
       });
     }
 
-    await saveMessage(conversation.id, 'user', input.message);
-
-    if (tenantId) {
-      void dispatchWebhook(tenantId, 'message.user', {
-        conversationId: conversation.id,
-        siteId: input.siteId,
-        visitorId,
-        message: input.message,
-      });
-    }
-
     if (isHumanHandled(conversation.status)) {
+      await saveMessage(conversation.id, 'user', input.message);
+
+      if (tenantId) {
+        void dispatchWebhook(tenantId, 'message.user', {
+          conversationId: conversation.id,
+          siteId: input.siteId,
+          visitorId,
+          message: input.message,
+        });
+      }
+
       yield sse({
         type: 'token',
         content:
@@ -150,6 +165,43 @@ export async function* runOrchestrator(input: {
       yield sse({ type: 'trace', steps: trace });
       yield sse({ type: 'done' });
       return;
+    }
+
+    const guardrail = await shouldTriggerGuardrail(input.siteId, conversation.id);
+    if (guardrail.trigger) {
+      await saveMessage(conversation.id, 'user', input.message);
+
+      if (tenantId) {
+        void dispatchWebhook(tenantId, 'message.user', {
+          conversationId: conversation.id,
+          siteId: input.siteId,
+          visitorId,
+          message: input.message,
+        });
+      }
+
+      await requestEscalation(
+        input.siteId,
+        visitorId,
+        conversation.id,
+        'Automatic handoff: conversation message limit reached',
+      );
+
+      yield sse({ type: 'guardrail', ...guardrail.payload });
+      yield sse({ type: 'trace', steps: trace });
+      yield sse({ type: 'done' });
+      return;
+    }
+
+    await saveMessage(conversation.id, 'user', input.message);
+
+    if (tenantId) {
+      void dispatchWebhook(tenantId, 'message.user', {
+        conversationId: conversation.id,
+        siteId: input.siteId,
+        visitorId,
+        message: input.message,
+      });
     }
 
     if (tenantId) {
@@ -207,6 +259,13 @@ export async function* runOrchestrator(input: {
     const tools = actionsToTools(scopedActions);
     const actionMap = new Map(scopedActions.map((a) => [a.operation_id, a]));
 
+    const widgetConfig = await getWidgetConfig(input.siteId);
+    const contactCollection =
+      widgetConfig.theme.contactCollectionEnabled !== false;
+    const allTools = contactCollection
+      ? [...tools, contactCollectionToolDefinition()]
+      : tools;
+
     if (scopedActions.length === 0) {
       const noToolsMsg =
         `I don't have access to ${site.name}'s backend APIs yet. ` +
@@ -220,19 +279,35 @@ export async function* runOrchestrator(input: {
 
     const memories = await getVisitorMemories(input.siteId, visitorId);
     const memoryContext = formatMemoriesForPrompt(memories);
+    const contact = contactCollection
+      ? await getVisitorContact(input.siteId, visitorId)
+      : null;
+    const contactContext = contactCollection
+      ? formatContactForPrompt(contact)
+      : undefined;
 
-    const history = await getConversationMessages(conversation.id);
+    const history = trimHistory(
+      (await getConversationMessages(conversation.id)).filter((m) => m.role !== 'system'),
+    );
     const llmMessages: ChatMessage[] = [
       {
         role: 'system',
-        content: buildOrchestratorSystemPrompt(site, specialist, scopedActions, memoryContext),
+        content: buildOrchestratorSystemPrompt(
+          site,
+          specialist,
+          scopedActions,
+          memoryContext,
+          contactContext,
+          {
+            compactTools: scopedActions.length > COMPACT_TOOL_CATALOG_THRESHOLD,
+            contactCollection,
+          },
+        ),
       },
-      ...history
-        .filter((m) => m.role !== 'system')
-        .map((m) => ({
-          role: m.role as ChatMessage['role'],
-          content: m.content ?? '',
-        })),
+      ...history.map((m) => ({
+        role: m.role as ChatMessage['role'],
+        content: m.content ?? '',
+      })),
     ];
 
     const scopedPayload: ScopedJwtPayload = {
@@ -246,8 +321,8 @@ export async function* runOrchestrator(input: {
       iterations++;
       const completion = await chatCompletion({
         messages: llmMessages,
-        tools,
-        toolChoice: iterations === 1 && !smallTalk ? 'required' : 'auto',
+        tools: allTools.length > 0 ? allTools : undefined,
+        toolChoice: iterations === 1 && !smallTalk && tools.length > 0 ? 'required' : 'auto',
         signal: input.signal,
       });
       trackTokens(completion.tokens_used);
@@ -270,6 +345,63 @@ export async function* runOrchestrator(input: {
           }
 
           pushTrace({ type: 'tool_call', agent: activeAgent, detail: opId });
+
+          if (opId === SAVE_VISITOR_CONTACT_TOOL) {
+            let contactResult: Record<string, unknown>;
+            try {
+              const saved = await upsertVisitorContact(input.siteId, visitorId, {
+                name: args.name as string | undefined,
+                email: args.email as string | undefined,
+                phone: args.phone as string | undefined,
+                country: args.country as string | undefined,
+                company: args.company as string | undefined,
+                consent: args.consent === true,
+                source: 'chat',
+              });
+              const label = [saved.contact.name, saved.contact.email ?? saved.contact.phone]
+                .filter(Boolean)
+                .join(' · ');
+              if (label) {
+                await addVisitorMemory(
+                  input.siteId,
+                  visitorId,
+                  `Contact on file: ${label}`,
+                  'contact',
+                  'ai',
+                );
+              }
+              if (tenantId) {
+                void dispatchWebhook(
+                  tenantId,
+                  saved.created ? 'lead.created' : 'lead.updated',
+                  {
+                    siteId: input.siteId,
+                    visitorId,
+                    conversationId: conversation.id,
+                    contact: saved.contact,
+                  },
+                );
+              }
+              contactResult = { ok: true, saved: true, contactId: saved.contact.id };
+            } catch (err) {
+              contactResult = {
+                ok: false,
+                error: err instanceof Error ? err.message : 'Failed to save contact',
+              };
+            }
+            llmMessages.push({
+              role: 'tool',
+              tool_call_id: toolCall.id,
+              name: opId,
+              content: JSON.stringify(contactResult),
+            });
+            pushTrace({
+              type: 'tool_result',
+              agent: activeAgent,
+              detail: `${opId}: ${contactResult.ok ? 'saved' : 'failed'}`,
+            });
+            continue;
+          }
 
           if (!action) {
             llmMessages.push({
@@ -302,7 +434,7 @@ export async function* runOrchestrator(input: {
             role: 'tool',
             tool_call_id: toolCall.id,
             name: opId,
-            content: JSON.stringify(result.toolResult),
+            content: JSON.stringify(truncateToolResult(result.toolResult)),
           });
 
           pushTrace({

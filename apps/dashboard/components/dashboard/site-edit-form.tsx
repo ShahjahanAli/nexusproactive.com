@@ -54,6 +54,11 @@ export function SiteEditForm({
           position: form.get('widgetPosition'),
           escalationEnabled: form.get('escalationEnabled') === 'on',
           proactiveEnabled: form.get('proactiveEnabled') === 'on',
+          contactCollectionEnabled: form.get('contactCollectionEnabled') === 'on',
+          maxUserMessages: parseInt(String(form.get('maxUserMessages') ?? '20'), 10) || 0,
+          whatsappNumber: String(form.get('whatsappNumber') ?? '').trim() || undefined,
+          whatsappPrefillMessage: String(form.get('whatsappPrefillMessage') ?? '').trim() || undefined,
+          guardrailMessage: String(form.get('guardrailMessage') ?? '').trim() || undefined,
         },
       }),
     });
@@ -236,11 +241,46 @@ export function SiteEditForm({
             <label className="flex items-center gap-2 font-mono text-xs text-zinc-400">
               <input
                 type="checkbox"
+                name="contactCollectionEnabled"
+                defaultChecked={theme.contactCollectionEnabled !== false}
+              />
+              AI asks for contact info (name, email, phone)
+            </label>
+            <label className="flex items-center gap-2 font-mono text-xs text-zinc-400">
+              <input
+                type="checkbox"
                 name="proactiveEnabled"
                 defaultChecked={theme.proactiveEnabled !== false}
               />
               Enable proactive messages
             </label>
+            <Input
+              name="maxUserMessages"
+              label="Max AI user messages per chat"
+              type="number"
+              min={0}
+              defaultValue={String(theme.maxUserMessages ?? 20)}
+              placeholder="20 (0 = unlimited)"
+            />
+            <Input
+              name="whatsappNumber"
+              label="WhatsApp number (handoff)"
+              defaultValue={String(theme.whatsappNumber ?? '')}
+              placeholder="+15551234567"
+            />
+            <Input
+              name="whatsappPrefillMessage"
+              label="WhatsApp prefill message"
+              defaultValue={String(theme.whatsappPrefillMessage ?? '')}
+              placeholder="Hi, I need help from your website chat…"
+            />
+            <Input
+              name="guardrailMessage"
+              label="Limit reached message"
+              className="sm:col-span-2"
+              defaultValue={String(theme.guardrailMessage ?? '')}
+              placeholder="You've reached the automated chat limit. Our team has been notified…"
+            />
             <div className="sm:col-span-2">
               <Button type="submit" disabled={loading}>
                 {loading ? 'Saving…' : 'Save widget theme'}

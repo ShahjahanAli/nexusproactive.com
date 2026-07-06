@@ -9,7 +9,9 @@ export type WebhookEvent =
   | 'escalation.claimed'
   | 'escalation.resolved'
   | 'action.executed'
-  | 'proactive.triggered';
+  | 'proactive.triggered'
+  | 'lead.created'
+  | 'lead.updated';
 
 export interface WebhookSubscription {
   id: string;

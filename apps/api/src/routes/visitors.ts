@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { requireTenantAuth } from '../middleware/auth';
 import { getTenantVisitors, getVisitorProfile } from '../services/visitors';
 import { addVisitorMemory, getVisitorMemories } from '../services/visitorMemory';
+import { getVisitorContact } from '../services/visitorContacts';
 
 const router = Router();
 
@@ -50,6 +51,21 @@ router.post('/:visitorId/memories', requireTenantAuth, async (req, res) => {
     'human',
   );
   res.status(201).json({ memory });
+});
+
+router.get('/:visitorId/contact', requireTenantAuth, async (req, res) => {
+  const siteId = req.query.siteId as string | undefined;
+  if (!siteId) {
+    res.status(400).json({ error: 'siteId query required' });
+    return;
+  }
+  const profile = await getVisitorProfile(req.tenantId!, req.params.visitorId);
+  if (!profile) {
+    res.status(404).json({ error: 'Visitor not found' });
+    return;
+  }
+  const contact = await getVisitorContact(siteId, req.params.visitorId);
+  res.json({ contact });
 });
 
 export default router;

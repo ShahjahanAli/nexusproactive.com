@@ -49,6 +49,23 @@ export default async function VisitorProfilePage({
       ).catch(() => ({ memories: [] }))
     : { memories: [] };
 
+  const contactData = primarySiteId
+    ? await apiFetch<{
+        contact: {
+          name: string | null;
+          email: string | null;
+          phone: string | null;
+          country: string | null;
+          company: string | null;
+          consent_given: boolean;
+          consent_at: string | null;
+          updated_at: string;
+        } | null;
+      }>(`/visitors/${encodeURIComponent(visitorId)}/contact?siteId=${primarySiteId}`).catch(
+        () => ({ contact: null }),
+      )
+    : { contact: null };
+
   return (
     <div className="space-y-6 sm:space-y-8">
       <PageHeader
@@ -105,6 +122,58 @@ export default async function VisitorProfilePage({
           ))}
         </PanelBody>
       </Panel>
+
+      {primarySiteId && (
+        <Panel>
+          <PanelHeader code="contact" title="Contact profile" subtitle="Collected by AI during chat" />
+          <PanelBody>
+            {contactData.contact ? (
+              <dl className="grid gap-2 sm:grid-cols-2 text-sm">
+                {contactData.contact.name && (
+                  <>
+                    <dt className="text-zinc-500">Name</dt>
+                    <dd className="text-zinc-200">{contactData.contact.name}</dd>
+                  </>
+                )}
+                {contactData.contact.email && (
+                  <>
+                    <dt className="text-zinc-500">Email</dt>
+                    <dd className="text-zinc-200">{contactData.contact.email}</dd>
+                  </>
+                )}
+                {contactData.contact.phone && (
+                  <>
+                    <dt className="text-zinc-500">Phone</dt>
+                    <dd className="text-zinc-200">{contactData.contact.phone}</dd>
+                  </>
+                )}
+                {contactData.contact.country && (
+                  <>
+                    <dt className="text-zinc-500">Country</dt>
+                    <dd className="text-zinc-200">{contactData.contact.country}</dd>
+                  </>
+                )}
+                {contactData.contact.company && (
+                  <>
+                    <dt className="text-zinc-500">Company</dt>
+                    <dd className="text-zinc-200">{contactData.contact.company}</dd>
+                  </>
+                )}
+                <dt className="text-zinc-500">Consent</dt>
+                <dd>
+                  <Badge variant={contactData.contact.consent_given ? 'success' : 'warning'} size="sm">
+                    {contactData.contact.consent_given ? 'Agreed to contact' : 'No consent'}
+                  </Badge>
+                </dd>
+              </dl>
+            ) : (
+              <p className="text-sm text-zinc-500">
+                No contact saved yet. The AI will ask when the visitor shows interest in follow-up or registration.
+              </p>
+            )}
+          </PanelBody>
+        </Panel>
+      )}
 
       {primarySiteId && (
         <Panel accent>

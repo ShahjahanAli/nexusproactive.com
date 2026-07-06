@@ -6,6 +6,8 @@ export function buildOrchestratorSystemPrompt(
   specialist: AgentConfig | null,
   actions: ActionRow[],
   memoryContext?: string,
+  contactContext?: string,
+  options?: { compactTools?: boolean; contactCollection?: boolean },
 ): string {
   const orgBlock = `You are the AI assistant for **${site.name}** (${site.domain}). You represent this organization only — not the open internet.`;
 
@@ -14,11 +16,24 @@ export function buildOrchestratorSystemPrompt(
     : `Help visitors with questions about ${site.name}'s products, services, events, and account data.`;
 
   const memoryBlock = memoryContext ? `\n\n${memoryContext}\n` : '';
+  const contactBlock =
+    options?.contactCollection !== false && contactContext ? `\n\n${contactContext}\n` : '';
+
+  const contactRules =
+    options?.contactCollection !== false
+      ? `
+## Contact collection (CRM)
+- When the visitor shows buying intent, needs follow-up, or asks about registration/tickets, politely ask for **name** and **email** (phone/country if helpful).
+- Explain why: "so our team can follow up" or "to send details".
+- Confirm spelling before saving. Only call **save_visitor_contact** after they **explicitly agree** to be contacted (consent: true).
+- If contact profile is already complete, do not ask again unless they want to update.
+- Never save without consent. Never ask for payment card numbers or passwords.`
+      : '';
 
   if (actions.length === 0) {
     return `${orgBlock}
 
-${roleBlock}${memoryBlock}
+${roleBlock}${memoryBlock}${contactBlock}${contactRules}
 
 ## Backend APIs
 No active API tools are configured for this site. If the user asks for organization-specific data (conferences, orders, listings, account info, etc.), explain that backend APIs are not connected yet and they should contact the site administrator. Do not invent data or answer from general world knowledge.
@@ -26,12 +41,15 @@ No active API tools are configured for this site. If the user asks for organizat
 Format replies clearly: short summary first, **bold** key terms, separate lines for list items.`;
   }
 
-  const toolCatalog = actions
-    .map(
-      (a) =>
-        `- **${a.operation_id}** (${a.method} ${a.path}): ${a.description ?? 'Call this endpoint for relevant data'}`,
-    )
-    .join('\n');
+  const compact = options?.compactTools ?? actions.length > 8;
+  const toolCatalog = compact
+    ? actions.map((a) => `- ${a.operation_id}: ${a.method} ${a.path}`).join('\n')
+    : actions
+        .map(
+          (a) =>
+            `- **${a.operation_id}** (${a.method} ${a.path}): ${a.description ?? 'Call this endpoint'}`,
+        )
+        .join('\n');
 
   const toolBlock = `## Backend API tools (${actions.length} connected)
 This organization's live backend is connected. For ANY question about ${site.name}'s data — conferences, events, schedules, orders, products, listings, accounts, etc. — you **MUST call the appropriate API tool(s) first** before answering.
@@ -52,7 +70,7 @@ ${toolCatalog}`;
 
   return `${orgBlock}
 
-${roleBlock}${memoryBlock}
+${roleBlock}${memoryBlock}${contactBlock}${contactRules}
 
 ${toolBlock}
 

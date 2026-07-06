@@ -36,6 +36,8 @@ const WEBHOOK_EVENTS = [
   'escalation.requested',
   'escalation.claimed',
   'escalation.resolved',
+  'lead.created',
+  'lead.updated',
   'action.executed',
   'proactive.triggered',
 ];

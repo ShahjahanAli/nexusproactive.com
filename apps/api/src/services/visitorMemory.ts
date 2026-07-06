@@ -88,6 +88,9 @@ export async function mergeVisitorIdentity(
     [canonical, siteId, fromVisitorId],
   );
 
+  const { mergeVisitorContacts } = await import('./visitorContacts');
+  await mergeVisitorContacts(siteId, fromVisitorId, toVisitorId);
+
   return { merged: true };
 }
 

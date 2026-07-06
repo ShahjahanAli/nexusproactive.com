@@ -9,9 +9,16 @@ export interface WidgetTheme {
   launcherLabel?: string;
   escalationEnabled?: boolean;
   proactiveEnabled?: boolean;
+  /** Max user messages before AI stops and human/WhatsApp handoff (0 = unlimited). */
+  maxUserMessages?: number;
+  whatsappNumber?: string;
+  whatsappPrefillMessage?: string;
+  guardrailMessage?: string;
+  /** Ask for and save visitor contact via AI (default true). */
+  contactCollectionEnabled?: boolean;
 }
 
-const DEFAULT_THEME: WidgetTheme = {
+export const DEFAULT_THEME: WidgetTheme = {
   primaryColor: '#059669',
   primaryColorDark: '#047857',
   position: 'bottom-right',
@@ -20,6 +27,7 @@ const DEFAULT_THEME: WidgetTheme = {
   launcherLabel: 'Chat',
   escalationEnabled: true,
   proactiveEnabled: true,
+  contactCollectionEnabled: true,
 };
 
 export async function getWidgetConfig(siteId: string): Promise<{
