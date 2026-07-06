@@ -56,4 +56,10 @@ export const config = {
       'gpt-4o',
   },
   dashboardUrl: process.env.DASHBOARD_URL ?? 'http://localhost:6100',
+  /** Public base URL for widget script + API (used in embed snippets). */
+  publicApiUrl: (
+    process.env.PUBLIC_API_URL ??
+    process.env.NEXT_PUBLIC_API_URL ??
+    `http://localhost:${process.env.PORT ?? '5000'}`
+  ).replace(/\/+$/, ''),
 };

@@ -28,7 +28,7 @@ Nexus Widget is an open-source platform that turns your existing REST API into a
 
 - **OpenAPI ingestion** — Automatically maps endpoints to LLM tools with AI-assisted risk classification
 - **Multi-agent orchestration** — Router classifies intent; specialists get filtered tool subsets
-- **Streaming chat widget** — Embeddable Web Component with markdown, typing indicator, and SSE token streaming
+- **Streaming chat widget** — Embeddable Web Component; **served from your Nexus API** (no per-client file copy)
 - **Risk-gated execution**
   - `read_only` — executes immediately
   - `reversible_write` — executes with a 5-minute undo window
@@ -63,6 +63,7 @@ flowchart LR
     BE[Client Backend API]
   end
 
+  W -->|load script| API
   W -->|SSE chat| API
   DASH --> API
   API --> ORCH
@@ -133,15 +134,23 @@ createdb nexus_widget   # if needed
 npm run db:migrate
 ```
 
-### 4. Run development servers
+### 4. Build and run
+
+Build the widget once (the API serves it from `apps/widget/dist`):
+
+```bash
+npm run build -w @nexus/widget
+```
 
 In separate terminals:
 
 ```bash
-npm run dev:api         # API → http://localhost:5000
+npm run dev:api         # API → http://localhost:5000 (also serves /widget/nexus.js)
 npm run dev:dashboard   # Dashboard → http://localhost:6100
-npm run dev:widget      # Widget dev server (optional, for live reload)
+npm run dev:widget      # Optional — Vite dev server for widget live reload only
 ```
+
+Verify the script is available: [http://localhost:5000/widget/nexus.js](http://localhost:5000/widget/nexus.js)
 
 ### 5. Onboard your first deployment
 
@@ -154,11 +163,23 @@ npm run dev:widget      # Widget dev server (optional, for live reload)
 
 ## Widget embed
 
+Client sites only add a **script tag** — you do **not** copy `nexus.iife.js` into their `public/` folder. The Nexus API hosts the bundle; every client loads it from your server.
+
 ```html
 <script>
   window.NEXUS_API_URL = 'http://localhost:5000';
 </script>
-<script src="https://cdn.yourdomain.com/nexus.iife.js" defer></script>
+<script src="http://localhost:5000/widget/nexus.js" defer></script>
+<nexus-chat site-id="YOUR-SITE-UUID"></nexus-chat>
+```
+
+**Production** — replace with your public API URL:
+
+```html
+<script>
+  window.NEXUS_API_URL = 'https://api.yourdomain.com';
+</script>
+<script src="https://api.yourdomain.com/widget/nexus.js" defer></script>
 <nexus-chat site-id="YOUR-SITE-UUID"></nexus-chat>
 ```
 
@@ -168,12 +189,26 @@ npm run dev:widget      # Widget dev server (optional, for live reload)
 <nexus-chat site-id="YOUR-SITE-UUID" visitor-id="user_12345"></nexus-chat>
 ```
 
-Build the widget bundle:
+The embed snippet in the dashboard (**Deployments → Edit**) is generated automatically from `NEXT_PUBLIC_API_URL`.
 
-```bash
-npm run build -w @nexus/widget
-# Output: apps/widget/dist/nexus.iife.js
+### Serving the widget from your server
+
+| Step | Command / URL |
+|------|----------------|
+| Build bundle | `npm run build -w @nexus/widget` → `apps/widget/dist/nexus.iife.js` |
+| Served by API | `GET /widget/nexus.js` (alias) or `GET /widget/nexus.iife.js` |
+| After widget updates | Rebuild widget + restart API — all client sites pick up the new script |
+
 ```
+Client website                    Your Nexus server
+──────────────                    ─────────────────
+<script src="https://api.../widget/nexus.js">
+        │                                    │
+        └──────── HTTP GET ──────────────────┘
+                     apps/widget/dist/nexus.iife.js
+```
+
+**Optional CDN** — Put Cloudflare, Nginx, or object storage in front of `/widget/*` for caching. The embed URL can point at `cdn.yourdomain.com/widget/nexus.js` as long as it proxies or mirrors the same file.
 
 Anonymous visitors receive a persistent UUID in `localStorage` (`nexus_visitor_id`). Conversations persist across page refreshes via stored `conversationId` and `GET /v1/chat/history`.
 
@@ -206,6 +241,8 @@ Reject tampered, expired, or out-of-scope tokens at your API boundary.
 | Deployments | `/app/sites` | Sites, OpenAPI ingest, Action Graph review |
 | Communications | `/app/conversations` | Live conversation feed |
 | Visitors | `/app/visitors` | Unique visitor registry and profiles |
+| Human inbox | `/app/escalations` | Claim and reply to escalated chats |
+| Integrations | `/app/integrations` | Outbound webhooks and proactive triggers |
 | Telemetry | `/app/analytics` | Tokens, visitors, API action activity |
 | Product Signals | `/app/signals` | Unsupported intent clustering |
 | Billing | `/app/billing` | Stripe plans and usage caps |
@@ -216,15 +253,22 @@ Reject tampered, expired, or out-of-scope tokens at your API boundary.
 
 | Endpoint | Auth | Purpose |
 |----------|------|---------|
+| `GET /widget/nexus.js` | Public | Widget bundle (served from `apps/widget/dist`) |
+| `GET /v1/widget/config` | Public | Widget theme + site config |
 | `POST /v1/chat` | Public (site + visitor) | SSE chat stream |
 | `GET /v1/chat/history` | Public | Restore conversation messages |
+| `POST /v1/chat/escalate` | Public | Request human agent |
+| `POST /v1/chat/context` | Public | Page context + proactive triggers |
 | `POST /v1/chat/approve` | Public | Confirm approval-gated action |
 | `POST /v1/chat/undo/:id` | Public | Undo reversible write |
 | `GET /health` | Public | DB / Redis health |
 | `/auth/*` | Public | Signup, login, session |
 | `/sites/*` | Tenant JWT | Deployment management + ingest |
 | `/conversations/*` | Tenant JWT | Conversation logs |
-| `/visitors/*` | Tenant JWT | Visitor analytics |
+| `/escalations/*` | Tenant JWT | Human inbox (claim, reply, resolve) |
+| `/webhook-subscriptions/*` | Tenant JWT | Outbound event webhooks |
+| `/proactive/*` | Tenant JWT | Proactive trigger rules |
+| `/visitors/*` | Tenant JWT | Visitor analytics + memory |
 | `/tenant/analytics` | Tenant JWT | Usage telemetry |
 | `/webhooks/stripe` | Stripe signature | Billing events |
 
@@ -233,8 +277,11 @@ Reject tampered, expired, or out-of-scope tokens at your API boundary.
 ## Development
 
 ```bash
-# Build all workspaces
+# Build all workspaces (includes widget → API can serve /widget/nexus.js)
 npm run build
+
+# Rebuild widget only after UI changes
+npm run build -w @nexus/widget
 
 # Database
 npm run db:migrate
@@ -262,7 +309,8 @@ See [RUNBOOK.md](RUNBOOK.md) for operations: JWT rotation, forced re-ingest, Str
 | `LLM_DEFAULT_MODEL` | Primary model for chat |
 | `REDIS_ENABLED` | `true` to enable Redis (optional in dev) |
 | `STRIPE_*` | Billing integration (optional for self-hosted) |
-| `NEXT_PUBLIC_API_URL` | Dashboard → API URL |
+| `NEXT_PUBLIC_API_URL` | Dashboard → API URL; used in embed snippets |
+| `PUBLIC_API_URL` | Public API base URL for production embeds (e.g. `https://api.yourdomain.com`) |
 
 Full list: [.env.example](.env.example)
 
@@ -285,8 +333,8 @@ Please keep PRs focused. For larger changes, open an issue first to discuss appr
 
 - [ ] Self-hosted Docker Compose stack
 - [ ] Additional client middleware (FastAPI, NestJS)
-- [ ] Widget theming API
-- [ ] Webhook notifications for conversations and approvals
+- [x] Widget theming API
+- [x] Webhook notifications for conversations and approvals
 - [ ] Multi-language widget UI
 
 ---

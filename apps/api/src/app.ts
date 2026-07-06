@@ -3,6 +3,8 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
+import path from 'path';
+import fs from 'fs';
 import { config } from './config';
 import { errorHandler } from './middleware/errorHandler';
 import { requestLogger, widgetChatLimiter } from './middleware/rateLimit';
@@ -36,6 +38,26 @@ export function createApp() {
   );
 
   app.use('/webhooks', stripeWebhooksRoutes);
+
+  const widgetDist = path.resolve(__dirname, '../../widget/dist');
+  if (fs.existsSync(widgetDist)) {
+    app.use(
+      '/widget',
+      express.static(widgetDist, {
+        maxAge: config.nodeEnv === 'production' ? '1h' : 0,
+        setHeaders(res, filePath) {
+          res.setHeader('Access-Control-Allow-Origin', '*');
+          if (filePath.endsWith('.js')) {
+            res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
+          }
+        },
+      }),
+    );
+    app.get('/widget/nexus.js', (_req, res) => {
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.sendFile(path.join(widgetDist, 'nexus.iife.js'));
+    });
+  }
 
   app.use(express.json());
   app.use(cookieParser());
