@@ -31,6 +31,7 @@ export interface SseEvent {
     | 'trace'
     | 'done'
     | 'error'
-    | 'conversation';
+    | 'conversation'
+    | 'guardrail';
   [key: string]: unknown;
 }
