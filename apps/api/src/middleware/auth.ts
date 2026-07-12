@@ -2,6 +2,7 @@ import jwt from 'jsonwebtoken';
 import { Request, Response, NextFunction } from 'express';
 import { AuthUser, TenantRole } from '@nexus/shared-types';
 import { config } from '../config';
+import { queryOne } from '../db';
 
 export interface JwtPayload {
   userId: string;
@@ -70,6 +71,19 @@ export async function requireTenantAuth(
 
   try {
     const payload = verifyToken(token);
+
+    const tenant = await queryOne<{ status: string }>(
+      `SELECT status FROM tenants WHERE id = $1`,
+      [payload.tenantId],
+    );
+    if (!tenant || tenant.status !== 'active') {
+      res.status(403).json({
+        error: 'This account is not active',
+        code: 'TENANT_INACTIVE',
+      });
+      return;
+    }
+
     req.tenantId = payload.tenantId;
     req.userId = payload.userId;
     req.auth = {

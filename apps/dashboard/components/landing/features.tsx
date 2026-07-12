@@ -69,7 +69,7 @@ export function LandingFeatures() {
           <p className="text-sm font-medium uppercase tracking-wider text-indigo-400">
             Features
           </p>
-          <h2 className="mt-3 text-2xl font-bold tracking-tight text-white sm:text-3xl md:text-4xl">
+          <h2 className="mt-3 text-2xl font-bold tracking-tight text-slate-50 sm:text-3xl md:text-4xl">
             Everything FAQ bots can&apos;t do
           </h2>
           <p className="mt-4 text-base text-slate-400 sm:text-lg">
@@ -86,7 +86,7 @@ export function LandingFeatures() {
               <div className="mb-4 inline-flex rounded-xl bg-indigo-500/10 p-3 text-indigo-400 ring-1 ring-indigo-500/20 transition group-hover:bg-indigo-500/20">
                 {feature.icon}
               </div>
-              <h3 className="text-lg font-semibold text-white">{feature.title}</h3>
+              <h3 className="text-lg font-semibold text-slate-50">{feature.title}</h3>
               <p className="mt-2 text-sm leading-relaxed text-slate-400">
                 {feature.description}
               </p>

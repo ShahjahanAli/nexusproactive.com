@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { ReactNode, useState } from 'react';
 import type { AuthUser } from '@nexus/shared-types';
+import { ThemeToggle } from '@/components/theme-toggle';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { UsageMeter } from './usage-meter';
@@ -227,7 +228,7 @@ export function AppShell({
   );
 
   return (
-    <div className="flex min-h-screen w-full flex-1 bg-[#070908] text-zinc-100">
+    <div className="flex min-h-screen w-full flex-1 bg-background text-zinc-100">
       {/* Desktop sidebar */}
       <aside className="fixed inset-y-0 left-0 z-40 hidden w-64 border-r border-zinc-800/80 bg-zinc-950/95 backdrop-blur-xl lg:flex lg:flex-col">
         {sidebar}
@@ -251,7 +252,7 @@ export function AppShell({
       {/* Main content */}
       <div className="flex min-h-screen flex-1 flex-col lg:pl-64">
         {/* Top bar */}
-        <header className="sticky top-0 z-30 border-b border-zinc-800/80 bg-[#070908]/90 backdrop-blur-xl">
+        <header className="sticky top-0 z-30 border-b border-zinc-800/80 bg-background/90 backdrop-blur-xl">
           <div className="flex h-14 items-center justify-between gap-4 px-4 sm:px-6">
             <div className="flex items-center gap-3">
               <button
@@ -269,6 +270,7 @@ export function AppShell({
               </Badge>
             </div>
             <div className="flex items-center gap-3">
+              <ThemeToggle />
               <TimezoneBadge />
               {usage && (
                 <UsageMeter tokensUsed={usage.tokens_used} tokensLimit={usage.max_tokens_month} />
@@ -304,10 +306,10 @@ export function AppShell({
 
       {/* Tactical grid overlay */}
       <div
-        className="pointer-events-none fixed inset-0 -z-10 opacity-[0.03]"
+        className="pointer-events-none fixed inset-0 -z-10 opacity-[0.04]"
         style={{
           backgroundImage:
-            'linear-gradient(rgba(52,211,153,.3) 1px, transparent 1px), linear-gradient(90deg, rgba(52,211,153,.3) 1px, transparent 1px)',
+            'linear-gradient(var(--grid-line) 1px, transparent 1px), linear-gradient(90deg, var(--grid-line) 1px, transparent 1px)',
           backgroundSize: '32px 32px',
         }}
       />

@@ -2,6 +2,10 @@ export type Plan = 'trial' | 'starter' | 'growth' | 'scale';
 
 export type TenantRole = 'owner' | 'admin' | 'viewer';
 
+export type TenantStatus = 'active' | 'suspended' | 'churned';
+
+export type PlatformRole = 'super_admin' | 'support' | 'readonly';
+
 export type RiskTier =
   | 'read_only'
   | 'reversible_write'
@@ -45,7 +49,76 @@ export interface Tenant {
   stripe_subscription_id: string | null;
   plan: Plan;
   plan_limits: PlanLimits;
+  status: TenantStatus;
+  notes: string | null;
   created_at: string;
+  updated_at?: string | null;
+}
+
+export interface PlatformAdmin {
+  id: string;
+  email: string;
+  name: string | null;
+  role: PlatformRole;
+  is_active: boolean;
+  last_login_at: string | null;
+  created_at: string;
+}
+
+export interface PlatformAuthUser {
+  adminId: string;
+  email: string;
+  name: string | null;
+  role: PlatformRole;
+}
+
+export interface PlatformPlan {
+  id: Plan;
+  name: string;
+  description: string | null;
+  plan_limits: PlanLimits;
+  stripe_price_id: string | null;
+  is_public: boolean;
+  sort_order: number;
+  updated_at: string;
+}
+
+export interface PlatformSetting {
+  key: string;
+  value: unknown;
+  description: string | null;
+  updated_at: string;
+  updated_by: string | null;
+}
+
+export interface FeatureFlag {
+  key: string;
+  name: string;
+  description: string | null;
+  enabled: boolean;
+  plans: Plan[];
+  updated_at: string;
+}
+
+export interface AdminAuditEntry {
+  id: string;
+  actor_id: string | null;
+  actor_email: string | null;
+  action: string;
+  target_type: string | null;
+  target_id: string | null;
+  meta: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface PlatformOverviewStats {
+  tenants_total: number;
+  tenants_active: number;
+  tenants_suspended: number;
+  sites_total: number;
+  conversations_month: number;
+  tokens_month: number;
+  by_plan: Record<Plan, number>;
 }
 
 export interface TenantUser {

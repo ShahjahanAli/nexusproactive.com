@@ -1,7 +1,7 @@
 /**
- * PM2 — API + Dashboard from monorepo root.
+ * PM2 — API + Dashboard + Super Admin from monorepo root.
  *
- * Dashboard: run Next.js via root node_modules (npm workspaces hoist deps there).
+ * Dashboard/Admin: run Next.js via root node_modules (npm workspaces hoist deps there).
  * Do NOT use `npm run -w @nexus/dashboard` — fails if workspaces aren't resolved.
  *
  *   pm2 start ecosystem.config.cjs --env production
@@ -15,11 +15,12 @@ function requireNextBin() {
   const candidates = [
     path.join(root, 'node_modules/next/dist/bin/next'),
     path.join(root, 'apps/dashboard/node_modules/next/dist/bin/next'),
+    path.join(root, 'apps/admin/node_modules/next/dist/bin/next'),
   ];
   const found = candidates.find((p) => fs.existsSync(p));
   if (!found) {
     throw new Error(
-      'Next.js not found. From repo root run: npm ci && npm run build -w @nexus/dashboard',
+      'Next.js not found. From repo root run: npm ci && npm run build -w @nexus/dashboard && npm run build -w @nexus/admin',
     );
   }
   return found;
@@ -64,6 +65,25 @@ module.exports = {
       env_production: {
         NODE_ENV: 'production',
         PORT: '6100',
+      },
+    },
+    {
+      name: 'nexus-admin',
+      cwd: path.join(root, 'apps/admin'),
+      script: nextBin,
+      args: ['start', '-p', '6200'],
+      instances: 1,
+      exec_mode: 'fork',
+      autorestart: true,
+      watch: false,
+      max_memory_restart: '768M',
+      env: {
+        NODE_ENV: 'development',
+        PORT: '6200',
+      },
+      env_production: {
+        NODE_ENV: 'production',
+        PORT: '6200',
       },
     },
   ],

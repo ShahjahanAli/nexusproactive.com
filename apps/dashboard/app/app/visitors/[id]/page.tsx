@@ -5,6 +5,7 @@ import { PageHeader } from '@/components/dashboard/ui/page-header';
 import { Panel, PanelBody, PanelHeader } from '@/components/dashboard/ui/panel';
 import { StatCard } from '@/components/dashboard/ui/stat-card';
 import { Badge } from '@/components/dashboard/ui/badge';
+import { VisitorMemoryForm } from '@/components/dashboard/visitor-memory-form';
 import { formatDateTime, formatDate } from '@/lib/datetime';
 
 interface VisitorProfile {

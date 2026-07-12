@@ -6,9 +6,11 @@ import {
   Plan,
   PlanLimits,
   TenantRole,
+  TenantStatus,
 } from '@nexus/shared-types';
 import { withClient, queryOne } from '../db';
 import { signToken } from '../middleware/auth';
+import { getSettingValue } from './platformService';
 
 interface TenantRow {
   id: string;
@@ -28,6 +30,7 @@ interface UserRow {
   company_name: string;
   plan: Plan;
   plan_limits: PlanLimits;
+  status: TenantStatus;
 }
 
 export async function signup(
@@ -35,6 +38,14 @@ export async function signup(
   email: string,
   password: string,
 ): Promise<{ token: string; tenantId: string; userId: string }> {
+  const allowSignups = await getSettingValue<boolean>('allow_signups');
+  if (allowSignups === false) {
+    throw Object.assign(new Error('New account signups are currently disabled'), {
+      status: 403,
+      code: 'SIGNUPS_DISABLED',
+    });
+  }
+
   const existing = await queryOne<{ id: string }>(
     'SELECT id FROM tenant_users WHERE email = $1',
     [email.toLowerCase()],
@@ -47,16 +58,24 @@ export async function signup(
   }
 
   const passwordHash = await bcrypt.hash(password, 12);
-  const planLimits = DEFAULT_PLAN_LIMITS.trial;
+  const defaultPlanRaw = await getSettingValue<Plan>('default_plan');
+  const defaultPlan: Plan =
+    defaultPlanRaw && defaultPlanRaw in DEFAULT_PLAN_LIMITS ? defaultPlanRaw : 'trial';
+
+  const catalog = await queryOne<{ plan_limits: PlanLimits }>(
+    `SELECT plan_limits FROM platform_plans WHERE id = $1`,
+    [defaultPlan],
+  ).catch(() => null);
+  const planLimits = catalog?.plan_limits ?? DEFAULT_PLAN_LIMITS[defaultPlan];
 
   return withClient(async (client) => {
     await client.query('BEGIN');
     try {
       const tenantResult = await client.query<TenantRow>(
         `INSERT INTO tenants (company_name, owner_email, plan, plan_limits)
-         VALUES ($1, $2, 'trial', $3)
+         VALUES ($1, $2, $3, $4)
          RETURNING id, company_name, owner_email, plan, plan_limits, stripe_customer_id`,
-        [companyName, email.toLowerCase(), JSON.stringify(planLimits)],
+        [companyName, email.toLowerCase(), defaultPlan, JSON.stringify(planLimits)],
       );
       const tenant = tenantResult.rows[0];
 
@@ -91,7 +110,7 @@ export async function login(
 ): Promise<{ token: string; user: AuthUser }> {
   const row = await queryOne<UserRow>(
     `SELECT tu.id, tu.tenant_id, tu.email, tu.role, tu.password_hash,
-            t.company_name, t.plan, t.plan_limits
+            t.company_name, t.plan, t.plan_limits, t.status
      FROM tenant_users tu
      JOIN tenants t ON t.id = tu.tenant_id
      WHERE tu.email = $1`,
@@ -102,6 +121,20 @@ export async function login(
     throw Object.assign(new Error('Invalid email or password'), {
       status: 401,
       code: 'INVALID_CREDENTIALS',
+    });
+  }
+
+  if (row.status === 'suspended') {
+    throw Object.assign(new Error('This account has been suspended'), {
+      status: 403,
+      code: 'TENANT_SUSPENDED',
+    });
+  }
+
+  if (row.status === 'churned') {
+    throw Object.assign(new Error('This account is no longer active'), {
+      status: 403,
+      code: 'TENANT_CHURNED',
     });
   }
 
@@ -136,7 +169,7 @@ export async function login(
 export async function getAuthUser(userId: string): Promise<AuthUser | null> {
   const row = await queryOne<UserRow>(
     `SELECT tu.id, tu.tenant_id, tu.email, tu.role,
-            t.company_name, t.plan, t.plan_limits
+            t.company_name, t.plan, t.plan_limits, t.status
      FROM tenant_users tu
      JOIN tenants t ON t.id = tu.tenant_id
      WHERE tu.id = $1`,
@@ -144,6 +177,7 @@ export async function getAuthUser(userId: string): Promise<AuthUser | null> {
   );
 
   if (!row) return null;
+  if (row.status !== 'active') return null;
 
   return {
     userId: row.id,

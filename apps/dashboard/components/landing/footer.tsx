@@ -7,10 +7,10 @@ export function LandingFooter() {
         <div className="flex flex-col gap-8 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <Link href="/" className="flex items-center gap-2">
-              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-indigo-500 to-violet-600 text-xs font-bold text-white">
+              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-indigo-500 to-violet-600 text-xs font-bold text-slate-50">
                 N
               </span>
-              <span className="font-semibold text-white">Nexus Widget</span>
+              <span className="font-semibold text-slate-50">Nexus Widget</span>
             </Link>
             <p className="mt-3 max-w-xs text-sm text-slate-500">
               Action-native chatbot platform for teams who need more than documentation search.

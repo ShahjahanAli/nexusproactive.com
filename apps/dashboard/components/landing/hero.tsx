@@ -26,7 +26,7 @@ export function LandingHero() {
             Action-native conversational layer
           </div>
 
-          <h1 className="text-3xl font-bold leading-tight tracking-tight text-white sm:text-4xl md:text-5xl lg:text-[3.25rem] lg:leading-[1.1]">
+          <h1 className="text-3xl font-bold leading-tight tracking-tight text-slate-50 sm:text-4xl md:text-5xl lg:text-[3.25rem] lg:leading-[1.1]">
             Chatbots that{' '}
             <span className="bg-gradient-to-r from-indigo-400 to-violet-400 bg-clip-text text-transparent">
               execute
@@ -65,7 +65,7 @@ export function LandingHero() {
               <div className="mb-4 flex items-center gap-2 border-b border-white/5 pb-3">
                 <div className="h-8 w-8 rounded-full bg-gradient-to-br from-indigo-500 to-violet-600" />
                 <div>
-                  <p className="text-sm font-medium text-white">Nexus Assistant</p>
+                  <p className="text-sm font-medium text-slate-50">Nexus Assistant</p>
                   <p className="text-xs text-emerald-400">Online · Billing specialist</p>
                 </div>
               </div>
@@ -81,7 +81,7 @@ export function LandingHero() {
                   <p className="text-xs font-medium text-amber-200">Approval required</p>
                   <p className="mt-1 text-xs text-slate-400">POST /orders/4821/cancel · Refund $129.00</p>
                   <div className="mt-3 flex gap-2">
-                    <span className="flex-1 rounded-lg bg-indigo-500 py-1.5 text-center text-xs font-medium text-white">
+                    <span className="flex-1 rounded-lg bg-indigo-500 py-1.5 text-center text-xs font-medium text-slate-50">
                       Confirm
                     </span>
                     <span className="flex-1 rounded-lg border border-white/10 py-1.5 text-center text-xs text-slate-400">

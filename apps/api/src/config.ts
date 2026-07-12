@@ -34,6 +34,17 @@ export const config = {
   jwtSecret: required('JWT_SECRET', 'dev-secret-change-in-production-min-32-chars!!'),
   jwtExpiresIn: process.env.JWT_EXPIRES_IN ?? '7d',
   corsOrigin: process.env.CORS_ORIGIN ?? 'http://localhost:6100',
+  /** Comma-separated list of allowed browser origins (dashboard + admin). */
+  corsOrigins: (
+    process.env.CORS_ORIGINS ??
+    [
+      process.env.CORS_ORIGIN ?? 'http://localhost:6100',
+      process.env.ADMIN_URL ?? 'http://localhost:6200',
+    ].join(',')
+  )
+    .split(',')
+    .map((o) => o.trim())
+    .filter(Boolean),
   stripeSecretKey: process.env.STRIPE_SECRET_KEY ?? '',
   stripeWebhookSecret: process.env.STRIPE_WEBHOOK_SECRET ?? '',
   stripePrices: {
@@ -56,6 +67,7 @@ export const config = {
       'gpt-4o',
   },
   dashboardUrl: process.env.DASHBOARD_URL ?? 'http://localhost:6100',
+  adminUrl: process.env.ADMIN_URL ?? 'http://localhost:6200',
   /** Public base URL for widget script + API (used in embed snippets). */
   publicApiUrl: (
     process.env.PUBLIC_API_URL ??

@@ -29,7 +29,7 @@ export function LandingHowItWorks() {
           <p className="text-sm font-medium uppercase tracking-wider text-indigo-400">
             How it works
           </p>
-          <h2 className="mt-3 text-2xl font-bold tracking-tight text-white sm:text-3xl md:text-4xl">
+          <h2 className="mt-3 text-2xl font-bold tracking-tight text-slate-50 sm:text-3xl md:text-4xl">
             Live in minutes, not months
           </h2>
         </div>
@@ -44,7 +44,7 @@ export function LandingHowItWorks() {
                 {item.step}
               </span>
               <div>
-                <h3 className="text-lg font-semibold text-white sm:text-xl">{item.title}</h3>
+                <h3 className="text-lg font-semibold text-slate-50 sm:text-xl">{item.title}</h3>
                 <p className="mt-2 text-sm leading-relaxed text-slate-400 sm:text-base">
                   {item.description}
                 </p>

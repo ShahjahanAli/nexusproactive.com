@@ -1,0 +1,66 @@
+@import "tailwindcss";
+
+:root,
+html[data-theme='dark'] {
+  color-scheme: dark;
+  --background: #070908;
+  --foreground: #ededed;
+  --surface: #09090b;
+  --grid-line: rgba(251, 191, 36, 0.3);
+}
+
+html[data-theme='light'] {
+  color-scheme: light;
+  --background: #f4f4f5;
+  --foreground: #18181b;
+  --surface: #ffffff;
+  --grid-line: rgba(217, 119, 6, 0.18);
+
+  /* Invert zinc so existing dark-first classes render as light UI */
+  --color-zinc-50: #09090b;
+  --color-zinc-100: #18181b;
+  --color-zinc-200: #27272a;
+  --color-zinc-300: #3f3f46;
+  --color-zinc-400: #52525b;
+  --color-zinc-500: #71717a;
+  --color-zinc-600: #a1a1aa;
+  --color-zinc-700: #d4d4d8;
+  --color-zinc-800: #e4e4e7;
+  --color-zinc-900: #f4f4f5;
+  --color-zinc-950: #ffffff;
+
+  /* Soften near-black brand panels so accents stay readable on light */
+  --color-emerald-950: #ecfdf5;
+  --color-amber-950: #fffbeb;
+  --color-red-950: #fef2f2;
+  --color-cyan-950: #ecfeff;
+}
+
+html[data-theme='light'] .bg-black\/70 {
+  background-color: rgb(24 24 27 / 0.45);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-surface: var(--surface);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+html {
+  scroll-behavior: smooth;
+  min-height: 100%;
+}
+
+html:not([data-theme]) {
+  color-scheme: dark;
+}
+
+body {
+  min-height: 100%;
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-geist-sans), system-ui, sans-serif;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}

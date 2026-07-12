@@ -38,7 +38,7 @@ export function LandingPricing() {
           <p className="text-sm font-medium uppercase tracking-wider text-indigo-400">
             Pricing
           </p>
-          <h2 className="mt-3 text-2xl font-bold tracking-tight text-white sm:text-3xl md:text-4xl">
+          <h2 className="mt-3 text-2xl font-bold tracking-tight text-slate-50 sm:text-3xl md:text-4xl">
             Simple, transparent plans
           </h2>
           <p className="mt-4 text-base text-slate-400 sm:text-lg">
@@ -57,13 +57,13 @@ export function LandingPricing() {
               }`}
             >
               {plan.highlighted && (
-                <span className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-indigo-500 px-3 py-0.5 text-xs font-medium text-white">
+                <span className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-indigo-500 px-3 py-0.5 text-xs font-medium text-slate-50">
                   Most popular
                 </span>
               )}
-              <h3 className="text-lg font-semibold text-white">{plan.name}</h3>
+              <h3 className="text-lg font-semibold text-slate-50">{plan.name}</h3>
               <div className="mt-3 flex items-baseline gap-1">
-                <span className="text-3xl font-bold text-white sm:text-4xl">{plan.price}</span>
+                <span className="text-3xl font-bold text-slate-50 sm:text-4xl">{plan.price}</span>
                 <span className="text-sm text-slate-400">{plan.period}</span>
               </div>
               <p className="mt-2 text-sm text-slate-400">{plan.description}</p>

@@ -22,6 +22,7 @@ import visitorsRoutes from './routes/visitors';
 import escalationsRoutes from './routes/escalations';
 import proactiveRoutes from './routes/proactive';
 import widgetRoutes from './routes/widget';
+import platformRoutes from './routes/platform';
 import devMockRoutes from './routes/devMock';
 
 export function createApp() {
@@ -42,7 +43,16 @@ export function createApp() {
     if (isWidgetPublic) {
       return cors({ origin: '*', credentials: false })(req, res, next);
     }
-    return cors({ origin: config.corsOrigin, credentials: true })(req, res, next);
+    return cors({
+      origin: (origin, cb) => {
+        if (!origin || config.corsOrigins.includes(origin)) {
+          cb(null, true);
+          return;
+        }
+        cb(null, false);
+      },
+      credentials: true,
+    })(req, res, next);
   });
 
   app.use('/webhooks', stripeWebhooksRoutes);
@@ -86,6 +96,7 @@ export function createApp() {
   });
 
   app.use('/auth', authRoutes);
+  app.use('/platform', platformRoutes);
   app.use('/tenant', tenantRoutes);
   app.use('/sites', sitesRoutes);
   app.use('/conversations', conversationsRoutes);

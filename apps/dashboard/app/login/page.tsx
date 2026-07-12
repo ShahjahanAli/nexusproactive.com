@@ -4,6 +4,7 @@ import { FormEvent, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Button, Input } from '@/components/dashboard/ui/button';
+import { ThemeToggle } from '@/components/theme-toggle';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -38,12 +39,15 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="relative flex min-h-full flex-1 items-center justify-center bg-[#070908] px-4 py-12">
+    <div className="relative flex min-h-full flex-1 items-center justify-center bg-background px-4 py-12">
+      <div className="absolute right-4 top-4 z-10 sm:right-6 sm:top-6">
+        <ThemeToggle />
+      </div>
       <div
         className="pointer-events-none absolute inset-0 opacity-[0.04]"
         style={{
           backgroundImage:
-            'linear-gradient(rgba(52,211,153,.4) 1px, transparent 1px), linear-gradient(90deg, rgba(52,211,153,.4) 1px, transparent 1px)',
+            'linear-gradient(var(--grid-line) 1px, transparent 1px), linear-gradient(90deg, var(--grid-line) 1px, transparent 1px)',
           backgroundSize: '32px 32px',
         }}
       />
