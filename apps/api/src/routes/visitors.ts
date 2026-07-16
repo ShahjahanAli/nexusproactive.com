@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { requireTenantAuth } from '../middleware/auth';
+import { parseOptionalString, parsePageLimit } from '../lib/listQuery';
 import { getTenantVisitors, getVisitorProfile } from '../services/visitors';
 import { addVisitorMemory, getVisitorMemories } from '../services/visitorMemory';
 import { getVisitorContact } from '../services/visitorContacts';
@@ -8,8 +9,12 @@ import { getVisitorContact } from '../services/visitorContacts';
 const router = Router();
 
 router.get('/', requireTenantAuth, async (req, res) => {
-  const visitors = await getTenantVisitors(req.tenantId!);
-  res.json({ visitors });
+  const { limit, offset } = parsePageLimit(req.query);
+  const q = parseOptionalString(req.query.q);
+  const siteId = parseOptionalString(req.query.siteId);
+
+  const result = await getTenantVisitors(req.tenantId!, { q, siteId, limit, offset });
+  res.json({ ...result, limit, offset });
 });
 
 router.get('/:visitorId', requireTenantAuth, async (req, res) => {

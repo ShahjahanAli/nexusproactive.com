@@ -54,7 +54,7 @@ export async function PUT(
   return proxy(request, `/${path.join('/')}`);
 }
 
-export async function POST(
+export async function DELETE(
   request: NextRequest,
   ctx: { params: Promise<{ path: string[] }> },
 ) {

@@ -61,10 +61,13 @@ export const config = {
     ),
     apiKey: process.env.LLM_API_KEY ?? process.env.LITELLM_API_KEY ?? '',
     defaultModel: process.env.LLM_DEFAULT_MODEL ?? 'gpt-4o-mini',
-    fallbackModel:
-      process.env.LLM_FALLBACK_MODEL ??
-      process.env.LLM_DEFAULT_MODEL ??
-      'gpt-4o',
+    fallbackModel: (() => {
+      const fallback = process.env.LLM_FALLBACK_MODEL?.trim();
+      const primary = process.env.LLM_DEFAULT_MODEL ?? 'gpt-4o-mini';
+      // Ignore placeholder / clearly invalid fallback ids
+      if (!fallback || /fallback|changeme|example/i.test(fallback)) return primary;
+      return fallback;
+    })(),
   },
   dashboardUrl: process.env.DASHBOARD_URL ?? 'http://localhost:6100',
   adminUrl: process.env.ADMIN_URL ?? 'http://localhost:6200',
@@ -74,4 +77,9 @@ export const config = {
     process.env.NEXT_PUBLIC_API_URL ??
     `http://localhost:${process.env.PORT ?? '5000'}`
   ).replace(/\/+$/, ''),
+  /** Session working-memory TTL for read-only tool results (seconds). */
+  toolCacheTtlSeconds: Math.max(
+    30,
+    parseInt(process.env.TOOL_CACHE_TTL_SECONDS ?? '300', 10) || 300,
+  ),
 };

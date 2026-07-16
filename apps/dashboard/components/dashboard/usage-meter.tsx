@@ -24,7 +24,7 @@ export function UsageMeter({
 
   return (
     <div className="hidden items-center gap-2 sm:flex" title={`${pct}% of monthly token cap used`}>
-      <div className="h-1.5 w-20 overflow-hidden rounded-sm bg-zinc-900 ring-1 ring-zinc-800">
+      <div className="h-1.5 w-20 overflow-hidden rounded-full bg-zinc-900 ring-1 ring-zinc-800">
         <div
           className={`h-full rounded-sm ${
             variant === 'success'

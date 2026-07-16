@@ -31,18 +31,18 @@ export default async function AppHomePage() {
     : 0;
 
   return (
-    <div className="space-y-6 sm:space-y-8">
+    <div className="space-y-6 mx-auto sm:space-y-8">
       <PageHeader
-        code="command_center"
-        title="Command Center"
+        code="overview"
+        title="Overview"
         description={
           user
-            ? `Operational overview for ${user.companyName}. Monitor deployments, capacity, and system status.`
-            : 'Operational overview and system status.'
+            ? `A quick summary of ${user.companyName}'s AI chat operations, connected sites, and current usage.`
+            : 'A quick summary of your AI chat operations and current usage.'
         }
         action={
           <ButtonLink href="/app/onboarding" size="sm">
-            + Deploy site
+            + Add site
           </ButtonLink>
         }
       />
@@ -102,16 +102,16 @@ export default async function AppHomePage() {
       <div className="grid gap-4 lg:grid-cols-5 lg:gap-6">
         <Panel accent className="lg:col-span-3">
           <PanelHeader
-            code="deploy_status"
-            title="Deployment status"
-            subtitle="Connected sites and action graph readiness"
+            code="sites"
+            title="Connected sites"
+            subtitle="Your active sites and their API connection status"
           />
           <PanelBody>
             {siteCount === 0 ? (
               <EmptyState
                 title="No deployments"
-                description="Connect your first site to ingest OpenAPI capabilities and activate the action graph."
-                actionLabel="Initialize deployment"
+                description="Add your first site to connect its APIs, enable the chat assistant, and review available actions."
+                actionLabel="Add your first site"
                 actionHref="/app/onboarding"
                 icon={
                   <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -138,7 +138,7 @@ export default async function AppHomePage() {
                       href={`/app/sites/${site.id}`}
                       className="shrink-0 font-mono text-[10px] uppercase tracking-wider text-emerald-500 hover:text-emerald-400"
                     >
-                      View action graph →
+                      View API actions →
                     </Link>
                   </li>
                 ))}
@@ -148,13 +148,13 @@ export default async function AppHomePage() {
         </Panel>
 
         <Panel className="lg:col-span-2">
-          <PanelHeader code="quick_ops" title="Quick ops" />
+          <PanelHeader code="quick_actions" title="Quick actions" />
           <PanelBody className="space-y-2">
             {[
-              { href: '/app/onboarding', label: 'Deploy new site', code: 'DEP-01' },
-              { href: '/app/sites', label: 'Manage deployments', code: 'DEP-02' },
-              { href: '/app/analytics', label: 'View telemetry', code: 'TEL-01' },
-              { href: '/app/billing', label: 'Resource allocation', code: 'RES-01' },
+              { href: '/app/onboarding', label: 'Add a new site', code: 'SET-01' },
+              { href: '/app/sites', label: 'Manage connected sites', code: 'SET-02' },
+              { href: '/app/analytics', label: 'Review analytics', code: 'ANL-01' },
+              { href: '/app/billing', label: 'View billing and usage', code: 'BIL-01' },
             ].map((item) => (
               <Link
                 key={item.href}

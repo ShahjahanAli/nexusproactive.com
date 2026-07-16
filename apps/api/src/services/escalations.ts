@@ -15,6 +15,7 @@ export interface EscalationRow {
   assigned_email: string | null;
   message_count: number;
   last_message_at: string | null;
+  last_message_preview: string | null;
   created_at: string;
 }
 
@@ -61,21 +62,98 @@ export async function requestEscalation(
   return { ok: true };
 }
 
-export async function listEscalations(tenantId: string): Promise<EscalationRow[]> {
-  return query<EscalationRow>(
+export async function listEscalations(
+  tenantId: string,
+  opts: {
+    q?: string;
+    siteId?: string;
+    status?: 'escalated' | 'human' | 'open';
+    assigned?: 'mine' | 'unassigned' | 'any';
+    userId?: string;
+    /** Include active AI chats (status=open) alongside escalations — for Live chats dock */
+    includeOpen?: boolean;
+    /** Only threads with activity in the last N hours (default 72 when includeOpen) */
+    activeWithinHours?: number;
+    limit?: number;
+    offset?: number;
+  } = {},
+): Promise<{ escalations: EscalationRow[]; total: number }> {
+  const limit = Math.min(opts.limit ?? 20, 100);
+  const offset = opts.offset ?? 0;
+  const filters: unknown[] = [tenantId];
+  const conds: string[] = ['s.tenant_id = $1'];
+
+  if (opts.status) {
+    filters.push(opts.status);
+    conds.push(`c.status = $${filters.length}`);
+  } else if (opts.includeOpen) {
+    conds.push(`c.status IN ('open', 'escalated', 'human')`);
+  } else {
+    conds.push(`c.status IN ('escalated', 'human')`);
+  }
+
+  if (opts.siteId) {
+    filters.push(opts.siteId);
+    conds.push(`c.site_id = $${filters.length}`);
+  }
+  if (opts.q) {
+    filters.push(`%${opts.q}%`);
+    conds.push(`c.visitor_id ILIKE $${filters.length}`);
+  }
+  if (opts.assigned === 'mine' && opts.userId) {
+    filters.push(opts.userId);
+    conds.push(`c.assigned_to = $${filters.length}`);
+  } else if (opts.assigned === 'unassigned') {
+    conds.push('c.assigned_to IS NULL');
+  }
+
+  const activeHours = opts.activeWithinHours ?? (opts.includeOpen ? 72 : undefined);
+  if (activeHours) {
+    filters.push(activeHours);
+    conds.push(`COALESCE(
+      (SELECT MAX(m.created_at) FROM messages m WHERE m.conversation_id = c.id),
+      c.escalated_at,
+      c.created_at
+    ) > now() - ($${filters.length}::text || ' hours')::interval`);
+  }
+
+  const where = conds.join(' AND ');
+
+  const countRow = await queryOne<{ count: string }>(
+    `SELECT COUNT(*)::text AS count
+     FROM conversations c
+     JOIN sites s ON s.id = c.site_id
+     WHERE ${where}`,
+    filters,
+  );
+
+  const escalations = await query<EscalationRow>(
     `SELECT c.id, c.site_id, s.name AS site_name, c.visitor_id, c.status,
             c.escalation_reason, c.escalated_at, c.assigned_to,
             tu.email AS assigned_email,
             (SELECT COUNT(*)::int FROM messages m WHERE m.conversation_id = c.id) AS message_count,
             (SELECT MAX(m.created_at) FROM messages m WHERE m.conversation_id = c.id) AS last_message_at,
+            (SELECT LEFT(m.content, 120) FROM messages m
+              WHERE m.conversation_id = c.id AND m.role IN ('user', 'assistant', 'system')
+              ORDER BY m.created_at DESC LIMIT 1) AS last_message_preview,
             c.created_at
      FROM conversations c
      JOIN sites s ON s.id = c.site_id
      LEFT JOIN tenant_users tu ON tu.id = c.assigned_to
-     WHERE s.tenant_id = $1 AND c.status IN ('escalated', 'human')
-     ORDER BY c.escalated_at DESC NULLS LAST`,
-    [tenantId],
+     WHERE ${where}
+     ORDER BY COALESCE(
+       (SELECT MAX(m.created_at) FROM messages m WHERE m.conversation_id = c.id),
+       c.escalated_at,
+       c.created_at
+     ) DESC
+     LIMIT $${filters.length + 1} OFFSET $${filters.length + 2}`,
+    [...filters, limit, offset],
   );
+
+  return {
+    escalations,
+    total: parseInt(countRow?.count ?? '0', 10),
+  };
 }
 
 export async function claimEscalation(
@@ -83,20 +161,25 @@ export async function claimEscalation(
   conversationId: string,
   userId: string,
 ): Promise<boolean> {
-  const conv = await queryOne<{ id: string }>(
-    `SELECT c.id FROM conversations c
+  const conv = await queryOne<{ id: string; assigned_to: string | null; status: string }>(
+    `SELECT c.id, c.assigned_to, c.status FROM conversations c
      JOIN sites s ON s.id = c.site_id
-     WHERE c.id = $1 AND s.tenant_id = $2 AND c.status IN ('escalated', 'human')`,
+     WHERE c.id = $1 AND s.tenant_id = $2 AND c.status IN ('escalated', 'human', 'open')`,
     [conversationId, tenantId],
   );
   if (!conv) return false;
 
+  const switching = conv.assigned_to !== userId;
   await queryOne(
-    `UPDATE conversations SET status = 'human', assigned_to = $1 WHERE id = $2`,
+    `UPDATE conversations SET status = 'human', assigned_to = $1,
+       escalated_at = COALESCE(escalated_at, now())
+     WHERE id = $2`,
     [userId, conversationId],
   );
 
-  await saveMessage(conversationId, 'system', 'A team member has joined the chat.');
+  if (switching) {
+    await saveMessage(conversationId, 'system', 'A team member has joined the chat.');
+  }
 
   void dispatchWebhook(tenantId, 'escalation.claimed', { conversationId, userId });
   return true;
@@ -108,20 +191,29 @@ export async function replyAsHuman(
   userId: string,
   content: string,
 ): Promise<boolean> {
-  const conv = await queryOne<{ id: string; status: string }>(
-    `SELECT c.id, c.status FROM conversations c
+  const conv = await queryOne<{ id: string; status: string; assigned_to: string | null }>(
+    `SELECT c.id, c.status, c.assigned_to FROM conversations c
      JOIN sites s ON s.id = c.site_id
      WHERE c.id = $1 AND s.tenant_id = $2`,
     [conversationId, tenantId],
   );
-  if (!conv || conv.status !== 'human') return false;
+  if (!conv) return false;
 
-  const user = await queryOne<{ email: string }>(
-    'SELECT email FROM tenant_users WHERE id = $1',
+  // Any agent can jump into a waiting/open/human thread
+  if (conv.status === 'escalated' || conv.status === 'open' || conv.assigned_to !== userId) {
+    const ok = await claimEscalation(tenantId, conversationId, userId);
+    if (!ok) return false;
+  } else if (conv.status !== 'human') {
+    return false;
+  }
+
+  const user = await queryOne<{ email: string; display_name: string | null }>(
+    'SELECT email, display_name FROM tenant_users WHERE id = $1',
     [userId],
   );
 
-  await saveMessage(conversationId, 'assistant', content, user?.email ?? 'human');
+  const agentLabel = user?.display_name?.trim() || user?.email || 'human';
+  await saveMessage(conversationId, 'assistant', content, agentLabel);
   return true;
 }
 

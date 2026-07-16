@@ -10,6 +10,12 @@ import { Button, Input } from '@/components/dashboard/ui/button';
 import { Badge } from '@/components/dashboard/ui/badge';
 
 import { buildEmbedSnippet } from '@/lib/embed-snippet';
+import { SiteOpenApiSourcesPanel } from '@/components/dashboard/site-openapi-sources-panel';
+import { SiteActionHealthPanel } from '@/components/dashboard/site-action-health-panel';
+
+function formErrorMessage(data: { error?: string; message?: string }): string {
+  return data.error ?? data.message ?? 'Request failed';
+}
 
 export function SiteEditForm({
   site,
@@ -20,16 +26,18 @@ export function SiteEditForm({
 }) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
+  const [widgetLoading, setWidgetLoading] = useState(false);
   const [reingesting, setReingesting] = useState(false);
   const [error, setError] = useState('');
+  const [widgetError, setWidgetError] = useState('');
   const [success, setSuccess] = useState('');
-  const theme = (site.widget_theme ?? {}) as Record<string, string | boolean>;
+  const [widgetSuccess, setWidgetSuccess] = useState('');
+  const theme = (site.widget_theme ?? {}) as Record<string, string | boolean | number>;
   const [embedSnippet] = useState(
-    embedSnippetProp ??
-      `<script>window.NEXUS_API_URL='http://localhost:5000';</script>\n<script src="http://localhost:5000/widget/nexus.js" defer></script>\n<nexus-chat site-id="${site.id}"></nexus-chat>`,
+    embedSnippetProp ?? buildEmbedSnippet(site.id),
   );
 
-  async function handleSubmit(e: FormEvent<HTMLFormElement>) {
+  async function handleSiteSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setLoading(true);
     setError('');
@@ -42,24 +50,10 @@ export function SiteEditForm({
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        name: form.get('name'),
-        domain: form.get('domain'),
-        backendBaseUrl: form.get('backendBaseUrl'),
+        name: String(form.get('name') ?? '').trim(),
+        domain: String(form.get('domain') ?? '').trim(),
+        backendBaseUrl: String(form.get('backendBaseUrl') ?? '').trim(),
         openapiSpecUrl: openapiSpecUrl || null,
-        widgetTheme: {
-          primaryColor: form.get('primaryColor'),
-          primaryColorDark: form.get('primaryColorDark'),
-          title: form.get('widgetTitle'),
-          subtitle: form.get('widgetSubtitle'),
-          position: form.get('widgetPosition'),
-          escalationEnabled: form.get('escalationEnabled') === 'on',
-          proactiveEnabled: form.get('proactiveEnabled') === 'on',
-          contactCollectionEnabled: form.get('contactCollectionEnabled') === 'on',
-          maxUserMessages: parseInt(String(form.get('maxUserMessages') ?? '20'), 10) || 0,
-          whatsappNumber: String(form.get('whatsappNumber') ?? '').trim() || undefined,
-          whatsappPrefillMessage: String(form.get('whatsappPrefillMessage') ?? '').trim() || undefined,
-          guardrailMessage: String(form.get('guardrailMessage') ?? '').trim() || undefined,
-        },
       }),
     });
 
@@ -67,14 +61,55 @@ export function SiteEditForm({
     setLoading(false);
 
     if (!res.ok) {
-      setError(data.error ?? 'Failed to update deployment');
+      setError(formErrorMessage(data));
       return;
     }
 
     const ingestMsg = data.ingest
-      ? ` Action Graph updated: ${data.ingest.actionCount} actions (v${data.ingest.specVersion}).`
+      ? ` API actions updated: ${data.ingest.actionCount} actions (v${data.ingest.specVersion}).`
       : '';
-    setSuccess(`Deployment saved.${ingestMsg}`);
+    setSuccess(`Site settings saved.${ingestMsg}`);
+    router.refresh();
+  }
+
+  async function handleWidgetSubmit(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    setWidgetLoading(true);
+    setWidgetError('');
+    setWidgetSuccess('');
+
+    const form = new FormData(e.currentTarget);
+    const maxRaw = parseInt(String(form.get('maxUserMessages') ?? '20'), 10);
+    const widgetTheme = {
+      primaryColor: String(form.get('primaryColor') ?? '').trim() || undefined,
+      primaryColorDark: String(form.get('primaryColorDark') ?? '').trim() || undefined,
+      title: String(form.get('widgetTitle') ?? '').trim() || undefined,
+      subtitle: String(form.get('widgetSubtitle') ?? '').trim() || undefined,
+      position: String(form.get('widgetPosition') ?? 'bottom-right'),
+      escalationEnabled: form.get('escalationEnabled') === 'on',
+      proactiveEnabled: form.get('proactiveEnabled') === 'on',
+      contactCollectionEnabled: form.get('contactCollectionEnabled') === 'on',
+      maxUserMessages: Number.isFinite(maxRaw) ? maxRaw : 20,
+      whatsappNumber: String(form.get('whatsappNumber') ?? '').trim() || undefined,
+      whatsappPrefillMessage: String(form.get('whatsappPrefillMessage') ?? '').trim() || undefined,
+      guardrailMessage: String(form.get('guardrailMessage') ?? '').trim() || undefined,
+    };
+
+    const res = await fetch(`/api/sites/${site.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ widgetTheme }),
+    });
+
+    const data = await res.json();
+    setWidgetLoading(false);
+
+    if (!res.ok) {
+      setWidgetError(formErrorMessage(data));
+      return;
+    }
+
+    setWidgetSuccess('Widget appearance saved.');
     router.refresh();
   }
 
@@ -93,13 +128,13 @@ export function SiteEditForm({
     setReingesting(false);
 
     if (!res.ok) {
-      setError(data.error ?? 'Re-ingest failed');
+      setError(formErrorMessage(data));
       return;
     }
 
     if (data.ingest) {
       setSuccess(
-        `Action Graph re-ingested: ${data.ingest.actionCount} actions, ${data.ingest.newActions} new.`,
+        `API actions refreshed: ${data.ingest.actionCount} actions, ${data.ingest.newActions} new.`,
       );
     } else {
       setSuccess('No OpenAPI spec URL configured — add one above first.');
@@ -110,15 +145,15 @@ export function SiteEditForm({
   return (
     <div className="space-y-6 sm:space-y-8">
       <PageHeader
-        code={`deployment/${site.id.slice(0, 8)}`}
-        title="Edit deployment"
-        description="Update backend connection, OpenAPI spec, and embed configuration."
+        code={`site_settings/${site.id.slice(0, 8)}`}
+        title="Site Settings"
+        description="Manage the site's backend connection, OpenAPI sources, widget behavior, and embed code."
         action={
           <Link
             href={`/app/sites/${site.id}`}
             className="font-mono text-[10px] uppercase tracking-wider text-zinc-500 hover:text-zinc-300"
           >
-            ← Action graph
+            ← API actions
           </Link>
         }
       />
@@ -130,10 +165,10 @@ export function SiteEditForm({
           subtitle={`Site ID: ${site.id}`}
         />
         <PanelBody>
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <form onSubmit={(e) => void handleSiteSubmit(e)} className="space-y-4">
             <Input
               name="name"
-              label="Designation"
+              label="Site name"
               defaultValue={site.name}
               placeholder="Production API"
               required
@@ -147,7 +182,7 @@ export function SiteEditForm({
             />
             <Input
               name="backendBaseUrl"
-              label="Backend endpoint"
+              label="Backend URL"
               defaultValue={site.backend_base_url}
               placeholder="https://api.example.com"
               type="url"
@@ -155,19 +190,19 @@ export function SiteEditForm({
             />
             <Input
               name="openapiSpecUrl"
-              label="OpenAPI spec URL"
+              label="Primary OpenAPI URL (legacy, optional)"
               defaultValue={site.openapi_spec_url ?? ''}
               placeholder="https://api.example.com/openapi.json"
               type="url"
             />
             <p className="font-mono text-[10px] leading-relaxed text-zinc-600">
-              OpenAPI describes your backend endpoints — not the AI provider. Nexus uses this to
-              discover which APIs the chatbot can call on your behalf.
+              Prefer the typed API sources below for ongoing setup. This field remains available for
+              older site configurations and mirrors the first enabled source.
             </p>
 
             {error && (
               <p className="rounded border border-red-500/30 bg-red-950/30 px-3 py-2 font-mono text-xs text-red-400">
-                ERR: {error}
+                {error}
               </p>
             )}
             {success && (
@@ -183,20 +218,28 @@ export function SiteEditForm({
               <Button
                 type="button"
                 variant="secondary"
-                disabled={reingesting || !site.openapi_spec_url}
-                onClick={handleReingest}
+                disabled={reingesting}
+                onClick={() => void handleReingest()}
               >
-                {reingesting ? 'Re-ingesting…' : 'Re-ingest OpenAPI'}
+                {reingesting ? 'Refreshing…' : 'Refresh all sources'}
               </Button>
             </div>
           </form>
         </PanelBody>
       </Panel>
 
+      <SiteOpenApiSourcesPanel siteId={site.id} />
+
+      <SiteActionHealthPanel siteId={site.id} />
+
       <Panel>
-        <PanelHeader code="widget_theme" title="Widget appearance" subtitle="Loaded by the embed at runtime" />
+        <PanelHeader
+          code="widget_appearance"
+          title="Widget appearance"
+          subtitle="Applied to the website chat widget at runtime"
+        />
         <PanelBody>
-          <form onSubmit={handleSubmit} className="grid gap-4 sm:grid-cols-2">
+          <form onSubmit={(e) => void handleWidgetSubmit(e)} className="grid gap-4 sm:grid-cols-2">
             <Input
               name="primaryColor"
               label="Primary color"
@@ -281,9 +324,19 @@ export function SiteEditForm({
               defaultValue={String(theme.guardrailMessage ?? '')}
               placeholder="You've reached the automated chat limit. Our team has been notified…"
             />
+            {widgetError && (
+              <p className="sm:col-span-2 rounded border border-red-500/30 bg-red-950/30 px-3 py-2 font-mono text-xs text-red-400">
+                {widgetError}
+              </p>
+            )}
+            {widgetSuccess && (
+              <p className="sm:col-span-2 rounded border border-emerald-500/30 bg-emerald-950/30 px-3 py-2 font-mono text-xs text-emerald-400">
+                {widgetSuccess}
+              </p>
+            )}
             <div className="sm:col-span-2">
-              <Button type="submit" disabled={loading}>
-                {loading ? 'Saving…' : 'Save widget theme'}
+              <Button type="submit" disabled={widgetLoading}>
+                {widgetLoading ? 'Saving…' : 'Save widget theme'}
               </Button>
             </div>
           </form>

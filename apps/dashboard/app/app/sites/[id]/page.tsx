@@ -4,7 +4,7 @@ import type { Action, Site } from '@nexus/shared-types';
 import { PageHeader } from '@/components/dashboard/ui/page-header';
 import { Panel, PanelBody } from '@/components/dashboard/ui/panel';
 import { EmptyState } from '@/components/dashboard/ui/empty-state';
-import { ActionReviewRow } from '@/components/dashboard/action-review-row';
+import { ActionReviewRow, ActionApproveButton } from '@/components/dashboard/action-review-row';
 import { Badge, riskTierBadge } from '@/components/dashboard/ui/badge';
 
 export default async function SiteDetailPage({
@@ -25,12 +25,12 @@ export default async function SiteDetailPage({
   return (
     <div className="space-y-6 sm:space-y-8">
       <PageHeader
-        code={`action_graph/${id.slice(0, 8)}`}
-        title={site?.name ?? 'Action Graph'}
+        code={`api_actions/${id.slice(0, 8)}`}
+        title={site?.name ?? 'API Actions'}
         description={
           site
-            ? `${site.domain} · Callable backend operations from OpenAPI spec`
-            : 'Callable backend operations discovered from OpenAPI spec. Risk tiers govern autonomous execution policy.'
+            ? `${site.domain} · API actions discovered from your connected OpenAPI sources`
+            : 'Review the API actions discovered from your OpenAPI sources and how they are classified for chat use.'
         }
         action={
           <div className="flex items-center gap-4">
@@ -38,13 +38,13 @@ export default async function SiteDetailPage({
               href={`/app/sites/${id}/edit`}
               className="font-mono text-[10px] uppercase tracking-wider text-emerald-500 hover:text-emerald-400"
             >
-              Edit deployment
+              Edit site
             </Link>
             <Link
               href="/app/sites"
               className="font-mono text-[10px] uppercase tracking-wider text-zinc-500 hover:text-zinc-300"
             >
-              ← Deployments
+              ← Sites
             </Link>
           </div>
         }
@@ -78,9 +78,9 @@ export default async function SiteDetailPage({
 
       {data.actions.length === 0 ? (
         <EmptyState
-          title="Graph empty"
-          description="No actions ingested. Add or update the OpenAPI spec URL in deployment settings."
-          actionLabel="Edit deployment"
+          title="No API actions yet"
+          description="No actions have been imported yet. Update the site's OpenAPI sources and run a fresh import."
+          actionLabel="Edit site"
           actionHref={`/app/sites/${id}/edit`}
         />
       ) : (
@@ -89,7 +89,7 @@ export default async function SiteDetailPage({
           <div className="space-y-2 lg:hidden">
             {data.actions.map((action) => (
               <Panel key={action.id}>
-                <PanelBody className="space-y-2 py-3">
+                <PanelBody className="space-y-3 py-3">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="rounded border border-cyan-500/30 bg-cyan-950/40 px-2 py-0.5 font-mono text-[10px] font-bold text-cyan-400">
                       {action.method}
@@ -97,13 +97,14 @@ export default async function SiteDetailPage({
                     <Badge variant={riskTierBadge(action.risk_tier)} size="sm">
                       {action.risk_tier.replace(/_/g, ' ')}
                     </Badge>
-                    {!action.reviewed_by_human && (
-                      <Badge variant="warning" size="sm">
-                        Pending review
+                    {action.source_type && (
+                      <Badge variant="default" size="sm">
+                        {action.source_type}
                       </Badge>
                     )}
                   </div>
                   <p className="break-all font-mono text-xs text-zinc-400">{action.path}</p>
+                  <ActionApproveButton action={action} />
                 </PanelBody>
               </Panel>
             ))}
@@ -116,7 +117,7 @@ export default async function SiteDetailPage({
                 <table className="w-full min-w-[720px] text-left text-sm">
                   <thead>
                     <tr className="border-b border-zinc-800/80 bg-zinc-900/40">
-                      {['Method', 'Path', 'Risk tier', 'Review', 'Spec ver.'].map((h) => (
+                      {['Method', 'Path', 'Type', 'Risk tier', 'Review', 'Spec ver.'].map((h) => (
                         <th
                           key={h}
                           className="px-5 py-3 font-mono text-[10px] font-normal uppercase tracking-wider text-zinc-500"

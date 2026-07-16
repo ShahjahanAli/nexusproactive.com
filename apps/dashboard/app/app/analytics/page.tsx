@@ -73,12 +73,26 @@ function formatTokens(n: number) {
 }
 
 export default async function AnalyticsPage() {
-  const data = await apiFetch<Analytics>('/tenant/analytics').catch(() => null);
+  const [data, opsData] = await Promise.all([
+    apiFetch<Analytics>('/tenant/analytics').catch(() => null),
+    apiFetch<{
+      ops: Array<{
+        id: string;
+        site_name: string;
+        operation_id: string;
+        status: string;
+        http_status: number | null;
+        error_message: string | null;
+        undone_at: string | null;
+        created_at: string;
+      }>;
+    }>('/tenant/action-ops').catch(() => ({ ops: [] })),
+  ]);
 
   if (!data) {
     return (
       <div className="space-y-6">
-        <PageHeader code="telemetry" title="Telemetry" description="Unable to load analytics." />
+        <PageHeader code="analytics" title="Analytics" description="Unable to load analytics right now." />
       </div>
     );
   }
@@ -90,12 +104,12 @@ export default async function AnalyticsPage() {
   return (
     <div className="space-y-6 sm:space-y-8">
       <PageHeader
-        code="telemetry"
-        title="Telemetry"
-        description={`Usage and activity for ${data.period.label}. Token consumption, visitors, API actions, and conversation metrics.`}
+        code="analytics"
+        title="Analytics"
+        description={`Usage and activity for ${data.period.label}, including visitors, conversations, API actions, and plan consumption.`}
         action={
           <Link href="/app/visitors" className="font-mono text-[10px] uppercase tracking-wider text-emerald-500">
-            Visitors →
+            View visitors →
           </Link>
         }
       />
@@ -146,7 +160,7 @@ export default async function AnalyticsPage() {
           <PanelHeader
             code="capacity"
             title="Monthly capacity"
-            subtitle="Token and conversation limits for your plan"
+            subtitle="Current usage compared with your monthly plan limits"
           />
           <PanelBody className="space-y-6">
             <ProgressBar
@@ -165,7 +179,7 @@ export default async function AnalyticsPage() {
         </Panel>
 
         <Panel className="lg:col-span-2">
-          <PanelHeader code="daily_tokens" title="7-day activity" subtitle="Tokens per day" />
+          <PanelHeader code="daily_activity" title="7-day activity" subtitle="Daily token usage" />
           <PanelBody>
             <div className="flex h-32 items-end justify-between gap-1.5">
               {data.dailyUsage.map((day) => {
@@ -193,7 +207,7 @@ export default async function AnalyticsPage() {
 
       <div className="grid gap-4 lg:grid-cols-2 lg:gap-6">
         <Panel>
-          <PanelHeader code="system_totals" title="System totals" />
+          <PanelHeader code="summary" title="Account summary" />
           <PanelBody>
             <dl className="grid grid-cols-2 gap-4">
               {[
@@ -218,10 +232,10 @@ export default async function AnalyticsPage() {
         </Panel>
 
         <Panel>
-          <PanelHeader code="by_site" title="Usage by deployment" />
+          <PanelHeader code="by_site" title="Usage by site" />
           <PanelBody noPadding>
             {data.bySite.length === 0 ? (
-              <p className="px-5 py-4 text-sm text-zinc-500">No deployments yet.</p>
+              <p className="px-5 py-4 text-sm text-zinc-500">No site activity yet.</p>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-sm">
@@ -269,7 +283,7 @@ export default async function AnalyticsPage() {
       <div className="grid gap-4 lg:grid-cols-2 lg:gap-6">
         <Panel>
           <PanelHeader
-            code="recent_chats"
+            code="recent_conversations"
             title="Recent conversations"
             action={
               <Link href="/app/conversations" className="font-mono text-[10px] text-emerald-500">
@@ -287,11 +301,11 @@ export default async function AnalyticsPage() {
                 <div>
                   <p className="text-sm text-zinc-200">{c.site_name}</p>
                   <p className="font-mono text-[10px] text-zinc-600">
-                    {c.message_count} msgs · {c.active_agent}
+                    {c.message_count} messages · {c.active_agent}
                   </p>
                 </div>
                 <Badge variant="tactical" size="sm">
-                  {formatTokens(c.tokens_used)} tok
+                  {formatTokens(c.tokens_used)} tokens
                 </Badge>
               </Link>
             ))}
@@ -299,10 +313,10 @@ export default async function AnalyticsPage() {
         </Panel>
 
         <Panel>
-          <PanelHeader code="api_activity" title="Recent API actions" subtitle="Backend calls via chat" />
+          <PanelHeader code="api_activity" title="Recent API actions" subtitle="Backend calls triggered through chat" />
           <PanelBody className="space-y-2">
             {data.recentExecutions.length === 0 ? (
-              <p className="text-sm text-zinc-500">No API actions executed yet.</p>
+              <p className="text-sm text-zinc-500">No API actions have been executed yet.</p>
             ) : (
               data.recentExecutions.map((ex) => (
                 <div
@@ -336,6 +350,42 @@ export default async function AnalyticsPage() {
           </PanelBody>
         </Panel>
       </div>
+
+      <Panel>
+        <PanelHeader
+          title="Undo & failed actions"
+          subtitle="Recent undos and compensating-action failures operators should review"
+        />
+        <PanelBody className="space-y-2">
+          {opsData.ops.length === 0 ? (
+            <p className="text-sm text-zinc-500">No undos or failed API actions recently.</p>
+          ) : (
+            opsData.ops.map((op) => (
+              <div
+                key={op.id}
+                className="flex flex-col gap-1 rounded-lg border border-zinc-800/60 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between"
+              >
+                <div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge
+                      variant={op.status === 'undone' ? 'info' : 'danger'}
+                      size="sm"
+                    >
+                      {op.status}
+                    </Badge>
+                    <span className="text-sm text-zinc-200">{op.operation_id}</span>
+                  </div>
+                  <p className="mt-1 text-xs text-zinc-500">
+                    {op.site_name}
+                    {op.http_status ? ` · HTTP ${op.http_status}` : ''}
+                    {op.error_message ? ` · ${op.error_message}` : ''}
+                  </p>
+                </div>
+              </div>
+            ))
+          )}
+        </PanelBody>
+      </Panel>
     </div>
   );
 }

@@ -5,14 +5,26 @@ function escapeHtml(s: string): string {
 }
 
 function inlineFormat(s: string): string {
-  return s
+  const protectedLinks: string[] = [];
+  // Preserve markdown links first so bare-URL autolink does not double-wrap them
+  let out = s.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, (_m, text: string, url: string) => {
+    const i = protectedLinks.length;
+    protectedLinks.push(
+      `<a href="${url}" target="_blank" rel="noopener noreferrer">${text}</a>`,
+    );
+    return `\u0000MD${i}\u0000`;
+  });
+
+  out = out
     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
     .replace(/\*(.+?)\*/g, '<em>$1</em>')
     .replace(/`([^`]+)`/g, '<code>$1</code>')
     .replace(
-      /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,
-      '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>',
+      /(https?:\/\/[^\s<]+[^\s<.,:;!?)\]])/g,
+      '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>',
     );
+
+  return out.replace(/\u0000MD(\d+)\u0000/g, (_m, i: string) => protectedLinks[Number(i)] ?? '');
 }
 
 export function renderMarkdown(text: string): string {
@@ -67,7 +79,7 @@ export function renderMarkdown(text: string): string {
       para.push(lines[i]);
       i++;
     }
-    parts.push(`<p>${inlineFormat(para.join(' '))}</p>`);
+    parts.push(`<p>${inlineFormat(para.join('<br>'))}</p>`);
   }
 
   return parts.join('') || `<p>${inlineFormat(escapeHtml(text))}</p>`;

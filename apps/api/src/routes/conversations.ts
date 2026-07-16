@@ -1,23 +1,27 @@
 import { Router } from 'express';
 import { requireTenantAuth } from '../middleware/auth';
+import { parseOptionalString, parsePageLimit } from '../lib/listQuery';
+import { listTenantConversations } from '../services/conversationList';
 import { query } from '../db';
 
 const router = Router();
 
 router.get('/', requireTenantAuth, async (req, res) => {
-  const rows = await query(
-    `SELECT c.id, c.site_id, c.visitor_id, c.status, c.active_agent, c.created_at,
-            c.tokens_used,
-            s.name AS site_name,
-            (SELECT COUNT(*)::int FROM messages m WHERE m.conversation_id = c.id) AS message_count
-     FROM conversations c
-     JOIN sites s ON s.id = c.site_id
-     WHERE s.tenant_id = $1
-     ORDER BY c.created_at DESC
-     LIMIT 100`,
-    [req.tenantId],
-  );
-  res.json({ conversations: rows });
+  const { limit, offset } = parsePageLimit(req.query);
+  const q = parseOptionalString(req.query.q);
+  const siteId = parseOptionalString(req.query.siteId);
+  const status = parseOptionalString(req.query.status);
+  const activeAgent = parseOptionalString(req.query.activeAgent);
+
+  const result = await listTenantConversations(req.tenantId!, {
+    q,
+    siteId,
+    status,
+    activeAgent,
+    limit,
+    offset,
+  });
+  res.json({ ...result, limit, offset });
 });
 
 router.get('/:id/messages', requireTenantAuth, async (req, res) => {

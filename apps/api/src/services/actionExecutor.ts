@@ -12,6 +12,10 @@ export interface ActionRow {
   input_schema: Record<string, unknown> | null;
   risk_tier: RiskTier;
   compensating_action_id: string | null;
+  source_id?: string | null;
+  source_type?: string | null;
+  /** Optional per-source backend override resolved at load time */
+  backend_base_url_override?: string | null;
 }
 
 export interface SiteRow {
@@ -58,7 +62,11 @@ export async function executeAction(
     site.jwt_signing_secret,
   );
 
-  const url = buildUrl(site.backend_base_url, action.path, payload);
+  const url = buildUrl(
+    action.backend_base_url_override || site.backend_base_url,
+    action.path,
+    payload,
+  );
   const method = action.method.toUpperCase();
 
   const fetchOptions: RequestInit = {
@@ -74,16 +82,34 @@ export async function executeAction(
     fetchOptions.body = JSON.stringify(payload);
   }
 
-  const response = await fetch(url, fetchOptions);
-  let body: unknown;
-  const text = await response.text();
   try {
-    body = JSON.parse(text);
-  } catch {
-    body = text;
+    const response = await fetch(url, fetchOptions);
+    let body: unknown;
+    const text = await response.text();
+    try {
+      body = JSON.parse(text);
+    } catch {
+      body = text;
+    }
+    return { status: response.status, body };
+  } catch (err) {
+    const cause = err instanceof Error && 'cause' in err ? (err as Error & { cause?: unknown }).cause : undefined;
+    const causeMsg =
+      cause instanceof Error
+        ? cause.message
+        : cause && typeof cause === 'object' && 'code' in cause
+          ? String((cause as { code: string }).code)
+          : null;
+    const detail = causeMsg ? `${(err as Error).message} (${causeMsg})` : err instanceof Error ? err.message : 'Network error';
+    return {
+      status: 503,
+      body: {
+        error: 'backend_unreachable',
+        message: `Could not reach the site API at ${url.split('?')[0]}`,
+        detail,
+      },
+    };
   }
-
-  return { status: response.status, body };
 }
 
 export async function getActionByOperationId(
@@ -91,11 +117,13 @@ export async function getActionByOperationId(
   operationId: string,
 ): Promise<ActionRow | null> {
   return queryOne<ActionRow>(
-    `SELECT id, site_id, operation_id, method, path, description, input_schema,
-            risk_tier, compensating_action_id
-     FROM actions
-     WHERE site_id = $1 AND operation_id = $2 AND is_active = true
-     ORDER BY spec_version DESC LIMIT 1`,
+    `SELECT a.id, a.site_id, a.operation_id, a.method, a.path, a.description, a.input_schema,
+            a.risk_tier, a.compensating_action_id, a.source_id, a.source_type,
+            s.backend_base_url AS backend_base_url_override
+     FROM actions a
+     LEFT JOIN site_openapi_sources s ON s.id = a.source_id
+     WHERE a.site_id = $1 AND a.operation_id = $2 AND a.is_active = true
+     ORDER BY a.spec_version DESC LIMIT 1`,
     [siteId, operationId],
   );
 }
@@ -110,12 +138,15 @@ export async function getSiteById(siteId: string): Promise<SiteRow | null> {
 export async function getActiveActions(siteId: string): Promise<ActionRow[]> {
   const { query } = await import('../db');
   return query<ActionRow>(
-    `SELECT DISTINCT ON (operation_id)
-            id, site_id, operation_id, method, path, description, input_schema,
-            risk_tier, compensating_action_id
-     FROM actions
-     WHERE site_id = $1 AND is_active = true
-     ORDER BY operation_id, spec_version DESC`,
+    `SELECT DISTINCT ON (a.operation_id)
+            a.id, a.site_id, a.operation_id, a.method, a.path, a.description, a.input_schema,
+            a.risk_tier, a.compensating_action_id, a.source_id, a.source_type,
+            s.backend_base_url AS backend_base_url_override
+     FROM actions a
+     LEFT JOIN site_openapi_sources s ON s.id = a.source_id
+     WHERE a.site_id = $1 AND a.is_active = true
+       AND (s.id IS NULL OR s.is_enabled = true)
+     ORDER BY a.operation_id, a.spec_version DESC`,
     [siteId],
   );
 }

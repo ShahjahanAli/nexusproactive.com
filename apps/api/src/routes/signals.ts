@@ -1,19 +1,48 @@
 import { Router } from 'express';
 import { requireTenantAuth } from '../middleware/auth';
-import { query } from '../db';
+import { parseOptionalString, parsePageLimit } from '../lib/listQuery';
+import {
+  generateSignalApiSuggestion,
+  listProductSignals,
+  markSignalSuggestionReviewed,
+} from '../services/productSignals';
 
 const router = Router();
 
 router.get('/', requireTenantAuth, async (req, res) => {
-  const signals = await query(
-    `SELECT ps.*, s.name AS site_name FROM product_signals ps
-     JOIN sites s ON s.id = ps.site_id
-     WHERE s.tenant_id = $1
-     ORDER BY ps.occurrence_count DESC, ps.last_seen DESC
-     LIMIT 50`,
-    [req.tenantId],
-  );
-  res.json({ signals });
+  const { limit, offset } = parsePageLimit(req.query);
+  const q = parseOptionalString(req.query.q);
+  const siteId = parseOptionalString(req.query.siteId);
+  const status = parseOptionalString(req.query.status);
+  const minOccurrences = parseInt(String(req.query.minOccurrences ?? ''), 10);
+
+  const result = await listProductSignals(req.tenantId!, {
+    q,
+    siteId,
+    status,
+    minOccurrences: Number.isFinite(minOccurrences) && minOccurrences > 0 ? minOccurrences : undefined,
+    limit,
+    offset,
+  });
+  res.json({ ...result, limit, offset });
+});
+
+router.post('/:id/suggest-api', requireTenantAuth, async (req, res) => {
+  const result = await generateSignalApiSuggestion(req.tenantId!, req.params.id);
+  if (!result) {
+    res.status(404).json({ error: 'Signal not found' });
+    return;
+  }
+  res.json(result);
+});
+
+router.post('/:id/review-suggestion', requireTenantAuth, async (req, res) => {
+  const ok = await markSignalSuggestionReviewed(req.tenantId!, req.params.id);
+  if (!ok) {
+    res.status(404).json({ error: 'Signal not found' });
+    return;
+  }
+  res.json({ ok: true });
 });
 
 export default router;

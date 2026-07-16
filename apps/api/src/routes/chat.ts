@@ -136,24 +136,64 @@ router.post('/', async (req, res) => {
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
   res.setHeader('Access-Control-Allow-Origin', '*');
+  // Prevent intermediary idle timeouts during long tool + LLM turns (often 30–90s).
+  res.setHeader('X-Accel-Buffering', 'no');
   res.flushHeaders?.();
 
-  const abortController = new AbortController();
-  req.on('close', () => abortController.abort());
+  // Hard ceiling for one chat turn (tools + compose). Do NOT abort on res/req "close":
+  // browser fetch streaming and Express often emit close while the client is still
+  // reading, which previously cancelled the LLM and showed "Sorry — I could not finish…".
+  const turnDeadlineMs = Math.max(
+    60_000,
+    parseInt(process.env.CHAT_TURN_TIMEOUT_MS ?? '180000', 10) || 180_000,
+  );
+  const turnAbort = new AbortController();
+  const turnTimer = setTimeout(() => turnAbort.abort(), turnDeadlineMs);
 
-  for await (const chunk of runOrchestrator({
-    siteId: body.siteId,
-    visitorId: body.visitorId,
-    message: body.message,
-    conversationId: body.conversationId,
-    signal: abortController.signal,
-  })) {
-    res.write(chunk);
-    const resWithFlush = res as typeof res & { flush?: () => void };
-    resWithFlush.flush?.();
+  // Real SSE *data* heartbeats (not comments). Some browsers/proxies ignore
+  // `: comment` lines and still drop "idle" streams during long LLM waits.
+  let beat = 0;
+  const heartbeat = setInterval(() => {
+    if (res.writableEnded) return;
+    beat += 1;
+    try {
+      const payload = JSON.stringify({
+        type: 'status',
+        phase: 'heartbeat',
+        label: beat % 2 === 0 ? 'Still working on that…' : 'Fetching the latest details…',
+      });
+      res.write(`data: ${payload}\n\n`);
+      const resWithFlush = res as typeof res & { flush?: () => void };
+      resWithFlush.flush?.();
+    } catch {
+      // socket already gone
+    }
+  }, 4_000);
+
+  try {
+    for await (const chunk of runOrchestrator({
+      siteId: body.siteId,
+      visitorId: body.visitorId,
+      message: body.message,
+      conversationId: body.conversationId,
+      signal: turnAbort.signal,
+    })) {
+      if (res.writableEnded) continue;
+      try {
+        res.write(chunk);
+        const resWithFlush = res as typeof res & { flush?: () => void };
+        resWithFlush.flush?.();
+      } catch {
+        // Client socket gone — keep draining so the reply is still persisted.
+      }
+    }
+  } finally {
+    clearTimeout(turnTimer);
+    clearInterval(heartbeat);
+    if (!res.writableEnded) {
+      res.end();
+    }
   }
-
-  res.end();
 });
 
 router.post('/approve', async (req, res) => {

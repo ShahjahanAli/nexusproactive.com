@@ -13,13 +13,26 @@ function setSessionCookie(response: NextResponse, token: string) {
 
 export async function POST(request: NextRequest) {
   const body = await request.json();
-  const res = await fetch(getApiUrl('/platform/auth/login'), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
 
-  const data = await res.json();
+  let res: Response;
+  try {
+    res = await fetch(getApiUrl('/platform/auth/login'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  } catch {
+    return NextResponse.json(
+      {
+        error:
+          'Cannot reach the Nexus API. Start it with `npm run dev:api` (port 5000).',
+        code: 'API_UNREACHABLE',
+      },
+      { status: 503 },
+    );
+  }
+
+  const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     return NextResponse.json(data, { status: res.status });
   }

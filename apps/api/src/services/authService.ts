@@ -108,8 +108,9 @@ export async function login(
   email: string,
   password: string,
 ): Promise<{ token: string; user: AuthUser }> {
-  const row = await queryOne<UserRow>(
+  const row = await queryOne<UserRow & { is_active?: boolean }>(
     `SELECT tu.id, tu.tenant_id, tu.email, tu.role, tu.password_hash,
+            COALESCE(tu.is_active, true) AS is_active,
             t.company_name, t.plan, t.plan_limits, t.status
      FROM tenant_users tu
      JOIN tenants t ON t.id = tu.tenant_id
@@ -121,6 +122,13 @@ export async function login(
     throw Object.assign(new Error('Invalid email or password'), {
       status: 401,
       code: 'INVALID_CREDENTIALS',
+    });
+  }
+
+  if (row.is_active === false) {
+    throw Object.assign(new Error('This agent account has been deactivated'), {
+      status: 403,
+      code: 'USER_INACTIVE',
     });
   }
 
@@ -167,8 +175,9 @@ export async function login(
 }
 
 export async function getAuthUser(userId: string): Promise<AuthUser | null> {
-  const row = await queryOne<UserRow>(
+  const row = await queryOne<UserRow & { is_active?: boolean }>(
     `SELECT tu.id, tu.tenant_id, tu.email, tu.role,
+            COALESCE(tu.is_active, true) AS is_active,
             t.company_name, t.plan, t.plan_limits, t.status
      FROM tenant_users tu
      JOIN tenants t ON t.id = tu.tenant_id
@@ -178,6 +187,7 @@ export async function getAuthUser(userId: string): Promise<AuthUser | null> {
 
   if (!row) return null;
   if (row.status !== 'active') return null;
+  if (row.is_active === false) return null;
 
   return {
     userId: row.id,

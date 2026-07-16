@@ -29,19 +29,17 @@ export function ProgressBar({
   return (
     <div>
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <span className="font-mono text-[10px] uppercase tracking-wider text-zinc-400">
-          {label}
-        </span>
-        <span className="font-mono text-xs tabular-nums text-zinc-300">
+        <span className="text-sm font-medium text-zinc-400">{label}</span>
+        <span className="text-xs tabular-nums text-zinc-300">
           {current.toLocaleString()}
           {unit} / {limit.toLocaleString()}
           {unit}
-          <span className="ml-2 text-zinc-600">[{pct}%]</span>
+          <span className="ml-2 text-zinc-500">({pct}%)</span>
         </span>
       </div>
-      <div className="mt-2 h-1.5 overflow-hidden rounded-sm bg-zinc-900 ring-1 ring-zinc-800">
+      <div className="mt-2 h-2 overflow-hidden rounded-full bg-zinc-900 ring-1 ring-zinc-800">
         <div
-          className={`h-full rounded-sm shadow-sm transition-all duration-500 ${barColor[status]} ${glowColor[status]}`}
+          className={`h-full rounded-full shadow-sm transition-all duration-500 ${barColor[status]} ${glowColor[status]}`}
           style={{ width: `${Math.min(pct, 100)}%` }}
         />
       </div>

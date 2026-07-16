@@ -22,6 +22,12 @@ import {
   writeAuditLog,
 } from '../services/platformService';
 import {
+  createOpenApiSourceType,
+  deleteOpenApiSourceType,
+  listOpenApiSourceTypes,
+  updateOpenApiSourceType,
+} from '../services/openapiSources';
+import {
   clearPlatformAuthCookie,
   requirePlatformAuth,
   requirePlatformRole,
@@ -231,6 +237,82 @@ router.patch('/features/:key', requirePlatformWrite, async (req, res) => {
     meta: patch,
   });
   res.json({ feature });
+});
+
+router.get('/source-types', async (_req, res) => {
+  const types = await listOpenApiSourceTypes();
+  res.json({ types });
+});
+
+const sourceTypeCreateSchema = z.object({
+  key: z.string().min(1).max(64),
+  name: z.string().min(1),
+  description: z.string().nullable().optional(),
+  sort_order: z.number().int().optional(),
+  is_active: z.boolean().optional(),
+  routing: z
+    .object({
+      specialists: z
+        .array(z.enum(['billing', 'technical', 'sales', 'account']))
+        .optional(),
+      alwaysInclude: z.boolean().optional(),
+    })
+    .optional(),
+});
+
+router.post('/source-types', requirePlatformWrite, async (req, res) => {
+  const body = sourceTypeCreateSchema.parse(req.body);
+  const type = await createOpenApiSourceType(body);
+  await writeAuditLog({
+    actorId: req.platformAuth!.adminId,
+    actorEmail: req.platformAuth!.email,
+    action: 'source_type.create',
+    targetType: 'openapi_source_type',
+    targetId: type.key,
+    meta: body,
+  });
+  res.status(201).json({ type });
+});
+
+const sourceTypePatchSchema = z.object({
+  name: z.string().min(1).optional(),
+  description: z.string().nullable().optional(),
+  sort_order: z.number().int().optional(),
+  is_active: z.boolean().optional(),
+  routing: z
+    .object({
+      specialists: z
+        .array(z.enum(['billing', 'technical', 'sales', 'account']))
+        .optional(),
+      alwaysInclude: z.boolean().optional(),
+    })
+    .optional(),
+});
+
+router.patch('/source-types/:key', requirePlatformWrite, async (req, res) => {
+  const patch = sourceTypePatchSchema.parse(req.body);
+  const type = await updateOpenApiSourceType(req.params.key, patch);
+  await writeAuditLog({
+    actorId: req.platformAuth!.adminId,
+    actorEmail: req.platformAuth!.email,
+    action: 'source_type.update',
+    targetType: 'openapi_source_type',
+    targetId: req.params.key,
+    meta: patch,
+  });
+  res.json({ type });
+});
+
+router.delete('/source-types/:key', requirePlatformWrite, async (req, res) => {
+  await deleteOpenApiSourceType(req.params.key);
+  await writeAuditLog({
+    actorId: req.platformAuth!.adminId,
+    actorEmail: req.platformAuth!.email,
+    action: 'source_type.delete',
+    targetType: 'openapi_source_type',
+    targetId: req.params.key,
+  });
+  res.json({ ok: true });
 });
 
 router.get('/audit', async (req, res) => {

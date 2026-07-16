@@ -15,10 +15,20 @@ export interface AgentConfig {
 }
 
 export interface OrchestratorTraceStep {
-  type: 'route' | 'handoff' | 'tool_call' | 'tool_result' | 'approval' | 'undo';
+  type: 'route' | 'handoff' | 'tool_call' | 'tool_result' | 'approval' | 'undo' | 'cache_hit';
   agent?: string;
   detail?: string;
   timestamp: string;
+}
+
+export interface ProvenanceEntry {
+  operationId: string;
+  method: string;
+  path: string;
+  sourceType?: string | null;
+  cached: boolean;
+  status: number | string;
+  at: string;
 }
 
 export interface SseEvent {
@@ -29,6 +39,8 @@ export interface SseEvent {
     | 'approval_card'
     | 'undo_available'
     | 'trace'
+    | 'provenance'
+    | 'mission_plan'
     | 'done'
     | 'error'
     | 'conversation'

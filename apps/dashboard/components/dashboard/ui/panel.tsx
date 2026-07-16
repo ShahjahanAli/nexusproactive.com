@@ -11,9 +11,9 @@ export function Panel({
 }) {
   return (
     <div
-      className={`relative overflow-hidden rounded-lg border bg-zinc-950/60 backdrop-blur-sm ${
+      className={`relative overflow-hidden rounded-xl border bg-zinc-950/70 shadow-sm backdrop-blur-sm ${
         accent
-          ? 'border-emerald-500/20 shadow-[inset_0_1px_0_0_rgba(52,211,153,0.08)]'
+          ? 'border-emerald-500/25 shadow-[inset_0_1px_0_0_rgba(52,211,153,0.08)]'
           : 'border-zinc-800/80'
       } ${className}`}
     >
@@ -29,7 +29,6 @@ export function PanelHeader({
   title,
   subtitle,
   action,
-  code,
 }: {
   title: string;
   subtitle?: string;
@@ -37,18 +36,11 @@ export function PanelHeader({
   code?: string;
 }) {
   return (
-    <div className="flex flex-col gap-3 border-b border-zinc-800/80 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5 sm:py-4">
+    <div className="flex flex-col gap-3 border-b border-zinc-800/80 px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between sm:px-5 sm:py-4">
       <div className="min-w-0">
-        {code && (
-          <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-emerald-500/70">
-            {code}
-          </p>
-        )}
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-100 sm:text-base">
-          {title}
-        </h2>
+        <h2 className="text-base font-semibold text-zinc-100">{title}</h2>
         {subtitle && (
-          <p className="mt-0.5 text-xs text-zinc-500 sm:text-sm">{subtitle}</p>
+          <p className="mt-0.5 text-sm text-zinc-500">{subtitle}</p>
         )}
       </div>
       {action && <div className="shrink-0">{action}</div>}

@@ -8,7 +8,12 @@ export async function getWidgetConversationHistory(
 ): Promise<{
   conversationId: string;
   status: string;
-  messages: Array<{ role: string; content: string }>;
+  messages: Array<{
+    role: string;
+    content: string;
+    createdAt?: string;
+    meta?: Record<string, unknown>;
+  }>;
 } | null> {
   const conv = await queryOne<{ id: string; status: string }>(
     `SELECT c.id, c.status FROM conversations c
@@ -20,7 +25,12 @@ export async function getWidgetConversationHistory(
   const rows = await getConversationMessages(conversationId);
   const messages = rows
     .filter((m) => m.role === 'user' || m.role === 'assistant' || m.role === 'system')
-    .map((m) => ({ role: m.role, content: m.content ?? '' }));
+    .map((m) => ({
+      role: m.role,
+      content: m.content ?? '',
+      createdAt: m.created_at,
+      meta: (m.meta as Record<string, unknown> | null) ?? undefined,
+    }));
 
   return { conversationId, status: conv.status, messages };
 }
@@ -37,9 +47,41 @@ export interface VisitorSummary {
 
 export async function getTenantVisitors(
   tenantId: string,
-  limit = 100,
-): Promise<VisitorSummary[]> {
-  return query<VisitorSummary>(
+  opts: {
+    q?: string;
+    siteId?: string;
+    limit?: number;
+    offset?: number;
+  } = {},
+): Promise<{ visitors: VisitorSummary[]; total: number }> {
+  const limit = Math.min(opts.limit ?? 20, 100);
+  const offset = opts.offset ?? 0;
+  const filters: unknown[] = [tenantId];
+  const conds: string[] = ['s.tenant_id = $1'];
+
+  if (opts.siteId) {
+    filters.push(opts.siteId);
+    conds.push(`c.site_id = $${filters.length}`);
+  }
+  if (opts.q) {
+    filters.push(`%${opts.q}%`);
+    conds.push(`c.visitor_id ILIKE $${filters.length}`);
+  }
+
+  const where = conds.join(' AND ');
+  const baseFrom = `
+    FROM conversations c
+    JOIN sites s ON s.id = c.site_id
+    LEFT JOIN messages m ON m.conversation_id = c.id
+    WHERE ${where}
+    GROUP BY c.visitor_id`;
+
+  const countRow = await queryOne<{ count: string }>(
+    `SELECT COUNT(*)::text AS count FROM (SELECT c.visitor_id ${baseFrom}) t`,
+    filters,
+  );
+
+  const visitors = await query<VisitorSummary>(
     `SELECT c.visitor_id,
             COUNT(DISTINCT c.id)::int AS conversations,
             COUNT(m.id)::int AS messages,
@@ -50,15 +92,16 @@ export async function getTenantVisitors(
               (SELECT MAX(m2.created_at) FROM messages m2 WHERE m2.conversation_id = c.id),
               c.created_at
             ))) AS last_seen
-     FROM conversations c
-     JOIN sites s ON s.id = c.site_id
-     LEFT JOIN messages m ON m.conversation_id = c.id
-     WHERE s.tenant_id = $1
-     GROUP BY c.visitor_id
+     ${baseFrom}
      ORDER BY last_seen DESC
-     LIMIT $2`,
-    [tenantId, limit],
+     LIMIT $${filters.length + 1} OFFSET $${filters.length + 2}`,
+    [...filters, limit, offset],
   );
+
+  return {
+    visitors,
+    total: parseInt(countRow?.count ?? '0', 10),
+  };
 }
 
 export interface VisitorConversation {

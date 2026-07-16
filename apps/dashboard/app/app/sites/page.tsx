@@ -15,21 +15,21 @@ export default async function SitesPage() {
   return (
     <div className="space-y-6 sm:space-y-8">
       <PageHeader
-        code="deployments"
-        title="Deployments"
-        description="Active site integrations and their Action Graph ingestion status."
+        code="sites"
+        title="Connected Sites"
+        description="Manage the websites connected to Nexus and review their API and chat configuration."
         action={
           <ButtonLink href="/app/onboarding" size="sm">
-            + New deployment
+            + Add site
           </ButtonLink>
         }
       />
 
       {data.sites.length === 0 ? (
         <EmptyState
-          title="Zero deployments"
-          description="No sites connected. Deploy your first integration to begin action graph discovery."
-          actionLabel="Start deployment"
+          title="No sites connected"
+          description="Add your first site to connect its backend, import API actions, and enable the chat experience."
+          actionLabel="Add a site"
           actionHref="/app/onboarding"
         />
       ) : (
@@ -56,13 +56,13 @@ export default async function SitesPage() {
                       href={`/app/sites/${site.id}`}
                       className="font-mono text-[10px] uppercase tracking-wider text-emerald-500"
                     >
-                      Action graph →
+                      API actions →
                     </Link>
                     <Link
                       href={`/app/sites/${site.id}/edit`}
                       className="font-mono text-[10px] uppercase tracking-wider text-zinc-500 hover:text-zinc-300"
                     >
-                      Edit deployment
+                      Edit site
                     </Link>
                   </div>
                 </PanelBody>
@@ -77,7 +77,7 @@ export default async function SitesPage() {
                 <table className="w-full min-w-[640px] text-left text-sm">
                   <thead>
                     <tr className="border-b border-zinc-800/80 bg-zinc-900/40">
-                      {['Designation', 'Domain', 'Backend endpoint', 'Status', ''].map((h) => (
+                      {['Site name', 'Domain', 'Backend URL', 'Status', ''].map((h) => (
                         <th
                           key={h}
                           className="px-5 py-3 font-mono text-[10px] font-normal uppercase tracking-wider text-zinc-500"
@@ -115,7 +115,7 @@ export default async function SitesPage() {
                               href={`/app/sites/${site.id}`}
                               className="font-mono text-[10px] uppercase tracking-wider text-emerald-500 hover:text-emerald-400"
                             >
-                              Action graph
+                              API actions
                             </Link>
                           </div>
                         </td>

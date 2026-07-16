@@ -66,9 +66,9 @@ export default function OnboardingContent() {
   return (
     <div className="mx-auto max-w-2xl space-y-6 sm:space-y-8">
       <PageHeader
-        code="integration_protocol"
-        title="Integrate"
-        description="Deploy a new site integration or upgrade resource allocation."
+        code="setup"
+        title="Add a Site"
+        description="Connect a website, configure its backend, and generate the embed code for your chat assistant."
       />
 
       {checkoutSuccess && (
@@ -79,16 +79,16 @@ export default function OnboardingContent() {
             </Badge>
           </div>
           <p className="mt-2 text-sm text-emerald-400/80">
-            Plan update propagating via Stripe webhook. Refresh shortly.
+            Your plan update is being applied now. Refresh in a moment if you do not see it right away.
           </p>
         </div>
       )}
 
       <Panel>
         <PanelHeader
-          code="tier_upgrade"
-          title="Upgrade tier"
-          subtitle="Optional — trial includes 1 site, 500 conversations/month"
+          code="plans"
+          title="Upgrade your plan"
+          subtitle="Optional: the trial includes 1 site and 500 conversations per month"
         />
         <PanelBody>
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
@@ -109,17 +109,17 @@ export default function OnboardingContent() {
 
       <Panel accent>
         <PanelHeader
-          code="site_deployment"
-          title="Deploy site"
-          subtitle="Register domain, backend endpoint, and OpenAPI spec"
+          code="site_setup"
+          title="Create site"
+          subtitle="Add your domain, backend URL, and OpenAPI source"
         />
         <PanelBody>
           <form onSubmit={handleSubmit} className="space-y-4">
-            <Input name="name" label="Designation" placeholder="Production API" required />
+            <Input name="name" label="Site name" placeholder="Main website" required />
             <Input name="domain" label="Domain" placeholder="example.com" required />
             <Input
               name="backendBaseUrl"
-              label="Backend endpoint"
+              label="Backend URL"
               placeholder="https://api.example.com"
               type="url"
               required
@@ -132,18 +132,18 @@ export default function OnboardingContent() {
             />
             {error && (
               <p className="rounded border border-red-500/30 bg-red-950/30 px-3 py-2 font-mono text-xs text-red-400">
-                ERR: {error}
+                {error}
               </p>
             )}
             <Button type="submit" disabled={loading} className="w-full sm:w-auto">
-              {loading ? 'Deploying…' : 'Execute deployment'}
+              {loading ? 'Creating site…' : 'Create site'}
             </Button>
           </form>
 
           {embedSnippet && (
             <div className="mt-6 border-t border-zinc-800/80 pt-6">
               <p className="font-mono text-[10px] uppercase tracking-wider text-zinc-500">
-                Embed payload
+                Embed code
               </p>
               <pre className="mt-2 overflow-x-auto rounded border border-emerald-500/20 bg-zinc-950 p-4 font-mono text-[11px] leading-relaxed text-emerald-400/90">
                 {embedSnippet}
@@ -157,7 +157,7 @@ export default function OnboardingContent() {
         href="/app"
         className="inline-block font-mono text-[10px] uppercase tracking-wider text-zinc-600 hover:text-zinc-400"
       >
-        ← Return to command center
+        ← Back to overview
       </Link>
     </div>
   );

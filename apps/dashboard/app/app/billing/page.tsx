@@ -38,29 +38,29 @@ export default async function BillingPage() {
   return (
     <div className="space-y-6 sm:space-y-8">
       <PageHeader
-        code="resource_allocation"
-        title="Resources"
-        description="Subscription tier, capacity limits, and usage telemetry for your deployment."
+        code="billing_usage"
+        title="Billing & Usage"
+        description="Review your current plan, available capacity, and usage across sites, conversations, and tokens."
       />
 
       <Panel accent>
         <PanelHeader
           code="subscription"
-          title="Active subscription"
+            title="Current plan"
           action={<BillingActions />}
         />
         <PanelBody>
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <p className="font-mono text-[10px] uppercase tracking-wider text-zinc-600">
-                Current tier
+                Active plan
               </p>
               <p className="mt-1 text-2xl font-bold uppercase tracking-wide text-zinc-50 sm:text-3xl">
                 {plan.plan}
               </p>
             </div>
             <Badge variant="tactical" dot>
-              Billing active
+                Billing active
             </Badge>
           </div>
         </PanelBody>
@@ -68,9 +68,9 @@ export default async function BillingPage() {
 
       <Panel>
         <PanelHeader
-          code="capacity_metrics"
-          title="Capacity metrics"
-          subtitle="Real-time usage against plan limits"
+          code="capacity"
+          title="Usage limits"
+          subtitle="Current usage compared with your plan limits"
         />
         <PanelBody className="space-y-6">
           <ProgressBar
@@ -86,7 +86,7 @@ export default async function BillingPage() {
             pct={tokenPct}
           />
           <ProgressBar
-            label="Deployment slots"
+            label="Site slots"
             current={sitesData.sites.length}
             limit={plan.limits.max_sites}
             pct={sitePct}

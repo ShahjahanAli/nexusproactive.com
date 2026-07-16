@@ -1,6 +1,6 @@
 export type Plan = 'trial' | 'starter' | 'growth' | 'scale';
 
-export type TenantRole = 'owner' | 'admin' | 'viewer';
+export type TenantRole = 'owner' | 'admin' | 'agent' | 'viewer';
 
 export type TenantStatus = 'active' | 'suspended' | 'churned';
 
@@ -100,6 +100,38 @@ export interface FeatureFlag {
   updated_at: string;
 }
 
+export interface OpenApiSourceTypeRouting {
+  specialists?: Array<'billing' | 'technical' | 'sales' | 'account'>;
+  alwaysInclude?: boolean;
+}
+
+export interface OpenApiSourceType {
+  key: string;
+  name: string;
+  description: string | null;
+  sort_order: number;
+  is_active: boolean;
+  routing: OpenApiSourceTypeRouting;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SiteOpenApiSource {
+  id: string;
+  site_id: string;
+  type_key: string;
+  label: string | null;
+  url: string;
+  backend_base_url: string | null;
+  is_enabled: boolean;
+  last_ingested_at: string | null;
+  last_error: string | null;
+  created_at: string;
+  updated_at: string;
+  /** Joined from openapi_source_types when available */
+  type_name?: string | null;
+}
+
 export interface AdminAuditEntry {
   id: string;
   actor_id: string | null;
@@ -126,6 +158,8 @@ export interface TenantUser {
   tenant_id: string;
   email: string;
   role: TenantRole;
+  display_name?: string | null;
+  is_active?: boolean;
   created_at: string;
 }
 
@@ -153,6 +187,8 @@ export interface Action {
   spec_version: number;
   is_active: boolean;
   reviewed_by_human: boolean;
+  source_id?: string | null;
+  source_type?: string | null;
   created_at: string;
 }
 

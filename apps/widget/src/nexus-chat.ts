@@ -1,11 +1,21 @@
 import { renderMarkdown, streamingPlainText } from './formatMessage';
 
-const API_URL = (typeof window !== 'undefined' && (window as unknown as { NEXUS_API_URL?: string }).NEXUS_API_URL)
-  || 'http://localhost:5000';
+/** Resolve at call time so host pages can set window.NEXUS_API_URL before/after script load. */
+function apiUrl(): string {
+  if (typeof window !== 'undefined') {
+    const configured = (window as unknown as { NEXUS_API_URL?: string }).NEXUS_API_URL?.trim();
+    if (configured) return configured.replace(/\/$/, '');
+  }
+  return 'http://localhost:5000';
+}
+
+const RECOVERY_REPLY =
+  /sorry — (i could not finish|connection (issue|dropped)|i hit a temporary glitch|something went wrong)/i;
 
 interface ChatMessage {
   role: 'user' | 'assistant' | 'system';
   content: string;
+  createdAt?: string;
   meta?: Record<string, unknown>;
 }
 
@@ -47,6 +57,11 @@ export class NexusChatElement extends HTMLElement {
   private renderedMessageCount = 0;
   private anonymousVisitorId?: string;
   private aiLocked = false;
+  /** Prevents parallel /v1/chat SSE requests. */
+  private sending = false;
+  private chatAbort?: AbortController;
+  /** Auto-reset sticky thread after repeated recovery replies. */
+  private consecutiveFailures = 0;
 
   constructor() {
     super();
@@ -76,6 +91,7 @@ export class NexusChatElement extends HTMLElement {
     this.shadow.querySelector('[data-minimize]')?.addEventListener('click', () => this.setMinimized(true));
     this.shadow.querySelector('[data-toggle]')?.addEventListener('click', () => this.toggle());
     this.shadow.querySelector('[data-escalate]')?.addEventListener('click', () => void this.escalateToHuman());
+    this.shadow.querySelector('[data-new-chat]')?.addEventListener('click', () => this.startFreshConversation());
     this.shadow.querySelector('form')?.addEventListener('submit', (e) => this.onSubmit(e as SubmitEvent));
     const composer = this.shadow.querySelector('[data-composer]') as HTMLTextAreaElement | null;
     composer?.addEventListener('input', () => {
@@ -85,6 +101,7 @@ export class NexusChatElement extends HTMLElement {
     composer?.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
+        if (this.sending) return;
         this.shadow.querySelector('form')?.requestSubmit();
       }
     });
@@ -99,16 +116,121 @@ export class NexusChatElement extends HTMLElement {
     return this.shadow.querySelector('[data-composer]') as HTMLTextAreaElement | null;
   }
 
-  private setComposerEnabled(enabled: boolean) {
+  private setComposerEnabled(enabled: boolean, placeholder?: string) {
     const composer = this.composerEl();
     const submit = this.shadow.querySelector('button[type=submit]') as HTMLButtonElement | null;
     if (composer) {
       composer.disabled = !enabled;
-      composer.placeholder = enabled
-        ? 'Ask anything… (Shift+Enter for new line)'
-        : 'Chat handed off — use WhatsApp or wait for our team';
+      composer.placeholder =
+        placeholder ??
+        (enabled
+          ? 'Ask anything… (Shift+Enter for new line)'
+          : 'Chat handed off — use WhatsApp or wait for our team');
     }
     if (submit) submit.disabled = !enabled;
+  }
+
+  private isHumanMode(status = this.conversationStatus): boolean {
+    return status === 'escalated' || status === 'human';
+  }
+
+  /** Sync UI + lock state when conversation status changes (queue / human / AI). */
+  private applyConversationMode(status: string) {
+    const prev = this.conversationStatus;
+    this.conversationStatus = status;
+    const human = this.isHumanMode(status);
+    const resumedAi = this.isHumanMode(prev) && !human;
+
+    this.aiLocked = human;
+
+    const root = this.shadow.querySelector('.root');
+    const banner = this.shadow.querySelector('[data-mode-banner]') as HTMLElement | null;
+    const subtitle = this.shadow.querySelector('[data-subtitle]') as HTMLElement | null;
+    const escalateBtn = this.shadow.querySelector('[data-escalate]') as HTMLButtonElement | null;
+    const newChatBtn = this.shadow.querySelector('[data-new-chat]') as HTMLButtonElement | null;
+
+    root?.classList.toggle('human-mode', human);
+    root?.classList.toggle('queue-mode', status === 'escalated');
+    root?.classList.toggle('live-human-mode', status === 'human');
+
+    if (banner) {
+      if (status === 'escalated') {
+        banner.hidden = false;
+        banner.dataset.mode = 'queue';
+        banner.innerHTML =
+          '<strong>Waiting for a team member</strong><span>You are in the queue. Messages still go to our team.</span>';
+      } else if (status === 'human') {
+        banner.hidden = false;
+        banner.dataset.mode = 'human';
+        banner.innerHTML =
+          '<strong>Connected to a human</strong><span>A team member is in this chat with you.</span>';
+      } else {
+        banner.hidden = true;
+        banner.dataset.mode = 'ai';
+        banner.innerHTML = '';
+      }
+    }
+
+    if (subtitle) {
+      if (status === 'escalated') {
+        subtitle.textContent = '● Waiting for human';
+      } else if (status === 'human') {
+        subtitle.textContent = '● Human agent';
+      } else {
+        const themeSub = this.widgetTheme.subtitle?.trim();
+        subtitle.textContent = themeSub || '● Online';
+      }
+    }
+
+    if (escalateBtn) {
+      const escalationOff = this.widgetTheme.escalationEnabled === false;
+      if (escalationOff) {
+        escalateBtn.style.display = 'none';
+      } else if (status === 'escalated') {
+        escalateBtn.style.display = '';
+        escalateBtn.disabled = true;
+        escalateBtn.textContent = 'In queue';
+        escalateBtn.title = 'Waiting for a team member';
+      } else if (status === 'human') {
+        escalateBtn.style.display = '';
+        escalateBtn.disabled = true;
+        escalateBtn.textContent = 'With human';
+        escalateBtn.title = 'A team member is handling this chat';
+      } else {
+        escalateBtn.style.display = '';
+        escalateBtn.disabled = false;
+        escalateBtn.textContent = 'Human';
+        escalateBtn.title = 'Talk to a human';
+      }
+    }
+
+    if (newChatBtn) {
+      newChatBtn.disabled = human || this.sending;
+      newChatBtn.title = human
+        ? 'Finish with the team member before starting a new chat'
+        : 'Start a fresh AI conversation';
+    }
+
+    if (human) {
+      this.setComposerEnabled(
+        true,
+        status === 'human'
+          ? 'Message the team member…'
+          : 'Message while you wait in queue…',
+      );
+      this.startHumanPolling();
+    } else {
+      this.setComposerEnabled(!this.sending);
+      if (this.isHumanMode(prev)) {
+        this.stopHumanPolling();
+      }
+      // Human → AI: drop sticky conversation so the next send cannot reuse a poisoned handoff thread.
+      if (resumedAi) {
+        this.beginFreshAiThread(
+          'You are back with the AI assistant. Continuing in a fresh chat thread — send your message whenever you are ready.',
+        );
+      }
+    }
   }
 
   private setMinimized(minimized: boolean) {
@@ -150,7 +272,7 @@ export class NexusChatElement extends HTMLElement {
   private async mergeVisitorIdentity(fromId: string, toId: string) {
     if (!this.siteId) return;
     try {
-      await fetch(`${API_URL}/v1/chat/merge-visitor`, {
+      await fetch(`${apiUrl()}/v1/chat/merge-visitor`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -167,7 +289,7 @@ export class NexusChatElement extends HTMLElement {
   private async loadWidgetConfig() {
     if (!this.siteId) return;
     try {
-      const res = await fetch(`${API_URL}/v1/widget/config?siteId=${this.siteId}`);
+      const res = await fetch(`${apiUrl()}/v1/widget/config?siteId=${this.siteId}`);
       if (!res.ok) return;
       const data = (await res.json()) as { theme: WidgetTheme };
       this.widgetTheme = data.theme ?? {};
@@ -198,9 +320,18 @@ export class NexusChatElement extends HTMLElement {
     const statusEl = this.shadow.querySelector('[data-subtitle]');
     const escalateBtn = this.shadow.querySelector('[data-escalate]') as HTMLElement | null;
     if (titleEl) titleEl.textContent = t.title ?? 'Nexus Assistant';
-    if (statusEl) statusEl.textContent = t.subtitle ?? '● Online';
+    if (statusEl && !this.isHumanMode()) {
+      statusEl.textContent = t.subtitle ?? '● Online';
+    }
     if (escalateBtn) {
-      escalateBtn.style.display = t.escalationEnabled === false ? 'none' : '';
+      if (t.escalationEnabled === false) {
+        escalateBtn.style.display = 'none';
+      } else if (!this.isHumanMode()) {
+        escalateBtn.style.display = '';
+        escalateBtn.removeAttribute('disabled');
+        (escalateBtn as HTMLButtonElement).disabled = false;
+        escalateBtn.textContent = 'Human';
+      }
     }
   }
 
@@ -208,7 +339,7 @@ export class NexusChatElement extends HTMLElement {
     if (!this.siteId || this.widgetTheme.proactiveEnabled === false) return;
     const idleSeconds = Math.floor((Date.now() - this.lastActivityAt) / 1000);
     try {
-      const res = await fetch(`${API_URL}/v1/chat/context`, {
+      const res = await fetch(`${apiUrl()}/v1/chat/context`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -249,6 +380,7 @@ export class NexusChatElement extends HTMLElement {
 
   private startHumanPolling() {
     this.stopHumanPolling();
+    void this.syncRenderedCountFromServer();
     this.humanPollTimer = setInterval(() => void this.pollHumanReplies(), 3000);
   }
 
@@ -259,9 +391,159 @@ export class NexusChatElement extends HTMLElement {
     }
   }
 
+  private abortInFlightChat() {
+    if (this.chatAbort) {
+      this.chatAbort.abort();
+      this.chatAbort = undefined;
+    }
+  }
+
+  /**
+   * Drop the sticky conversation id so the next POST creates a new server thread.
+   * Keeps visible history unless `clearUi` is true.
+   */
+  private beginFreshAiThread(notice?: string, clearUi = false) {
+    this.abortInFlightChat();
+    this.stopHumanPolling();
+    this.consecutiveFailures = 0;
+
+    const oldId = this.conversationId;
+    if (this.siteId && oldId) {
+      try {
+        localStorage.removeItem(`nexus_messages_${this.siteId}_${oldId}`);
+      } catch {
+        // ignore
+      }
+    }
+    if (this.siteId) localStorage.removeItem(this.conversationKey());
+    this.conversationId = undefined;
+    this.conversationStatus = 'open';
+    this.aiLocked = false;
+
+    if (clearUi) {
+      this.messages = [];
+      this.renderedMessageCount = 0;
+      const msgs = this.shadow.querySelector('[data-msgs]');
+      if (msgs) msgs.innerHTML = '';
+    }
+
+    if (notice) {
+      const at = new Date().toISOString();
+      this.addBubble(this.escape(notice), 'system', at);
+      this.messages.push({ role: 'system', content: notice, createdAt: at });
+    }
+
+    this.renderedMessageCount = this.messages.length;
+
+    // Update chrome without re-entering the human→AI resume path.
+    const root = this.shadow.querySelector('.root');
+    root?.classList.remove('human-mode', 'queue-mode', 'live-human-mode');
+    const banner = this.shadow.querySelector('[data-mode-banner]') as HTMLElement | null;
+    if (banner) {
+      banner.hidden = true;
+      banner.dataset.mode = 'ai';
+      banner.innerHTML = '';
+    }
+    const subtitle = this.shadow.querySelector('[data-subtitle]') as HTMLElement | null;
+    if (subtitle) {
+      subtitle.textContent = this.widgetTheme.subtitle?.trim() || '● Online';
+    }
+    const escalateBtn = this.shadow.querySelector('[data-escalate]') as HTMLButtonElement | null;
+    if (escalateBtn && this.widgetTheme.escalationEnabled !== false) {
+      escalateBtn.style.display = '';
+      escalateBtn.disabled = false;
+      escalateBtn.textContent = 'Human';
+      escalateBtn.title = 'Talk to a human';
+    }
+    const newChatBtn = this.shadow.querySelector('[data-new-chat]') as HTMLButtonElement | null;
+    if (newChatBtn) {
+      newChatBtn.disabled = this.sending;
+      newChatBtn.title = 'Start a fresh AI conversation';
+    }
+    if (!this.sending) this.setComposerEnabled(true);
+  }
+
+  /** User-facing New chat control. */
+  private startFreshConversation() {
+    if (this.isHumanMode() || this.sending) return;
+    this.beginFreshAiThread('Started a new chat.', true);
+    this.composerEl()?.focus();
+  }
+
+  /** Align poll cursor with server history to avoid duplicate bubbles after AI SSE. */
+  private async syncRenderedCountFromServer() {
+    if (!this.siteId || !this.conversationId || !this.visitorId) return;
+    try {
+      const params = new URLSearchParams({
+        siteId: this.siteId,
+        visitorId: this.visitorId,
+        conversationId: this.conversationId,
+      });
+      const res = await fetch(`${apiUrl()}/v1/chat/history?${params}`);
+      if (!res.ok) return;
+      const data = (await res.json()) as { messages: unknown[] };
+      this.renderedMessageCount = data.messages.length;
+    } catch {
+      // ignore
+    }
+  }
+
+  /**
+   * When the browser drops a long SSE turn, the API may still have saved the real
+   * assistant reply. Pull it from history so the visitor sees the answer.
+   */
+  private async tryRecoverReplyFromServer(
+    userMessage: string,
+    existingEl: HTMLElement | null,
+  ): Promise<string | null> {
+    if (!this.siteId || !this.conversationId || !this.visitorId) return null;
+
+    for (const delayMs of [800, 2000, 4000]) {
+      await new Promise((r) => setTimeout(r, delayMs));
+      try {
+        const params = new URLSearchParams({
+          siteId: this.siteId,
+          visitorId: this.visitorId,
+          conversationId: this.conversationId,
+        });
+        const res = await fetch(`${apiUrl()}/v1/chat/history?${params}`);
+        if (!res.ok) continue;
+        const data = (await res.json()) as {
+          messages: Array<{ role: string; content: string; createdAt?: string }>;
+        };
+        this.renderedMessageCount = data.messages.length;
+
+        let lastUserIdx = -1;
+        for (let i = data.messages.length - 1; i >= 0; i--) {
+          if (
+            data.messages[i].role === 'user' &&
+            data.messages[i].content.trim() === userMessage.trim()
+          ) {
+            lastUserIdx = i;
+            break;
+          }
+        }
+        if (lastUserIdx < 0) continue;
+
+        const after = data.messages.slice(lastUserIdx + 1);
+        const assistant = [...after].reverse().find((m) => m.role === 'assistant');
+        if (!assistant?.content) continue;
+        if (RECOVERY_REPLY.test(assistant.content)) continue;
+
+        if (existingEl) {
+          this.setAssistantContent(existingEl, assistant.content, false);
+        }
+        return assistant.content;
+      } catch {
+        // retry
+      }
+    }
+    return null;
+  }
+
   private async pollHumanReplies() {
     if (!this.siteId || !this.conversationId) return;
-    if (this.conversationStatus !== 'escalated' && this.conversationStatus !== 'human') {
+    if (!this.isHumanMode()) {
       this.stopHumanPolling();
       return;
     }
@@ -272,19 +554,34 @@ export class NexusChatElement extends HTMLElement {
         visitorId: this.visitorId,
         conversationId: this.conversationId,
       });
-      const res = await fetch(`${API_URL}/v1/chat/history?${params}`);
+      const res = await fetch(`${apiUrl()}/v1/chat/history?${params}`);
       if (!res.ok) return;
       const data = (await res.json()) as {
         status: string;
-        messages: Array<{ role: string; content: string }>;
+        messages: Array<{ role: string; content: string; createdAt?: string }>;
       };
-      this.conversationStatus = data.status;
+
+      const previousStatus = this.conversationStatus;
+      if (data.status !== previousStatus) {
+        this.applyConversationMode(data.status);
+      }
+
+      // After AI resume, conversationId may already be cleared — stop without duplicating.
+      if (!this.conversationId || !this.isHumanMode(data.status)) {
+        this.stopHumanPolling();
+        return;
+      }
+
       if (data.messages.length > this.renderedMessageCount) {
         const newMsgs = data.messages.slice(this.renderedMessageCount);
         for (const m of newMsgs) {
           if (m.role === 'user') continue;
-          this.messages.push({ role: m.role as ChatMessage['role'], content: m.content });
-          this.renderStoredMessage(m.role, m.content);
+          this.messages.push({
+            role: m.role as ChatMessage['role'],
+            content: m.content,
+            createdAt: m.createdAt,
+          });
+          this.renderStoredMessage(m.role, m.content, undefined, m.createdAt);
         }
         this.renderedMessageCount = data.messages.length;
         this.persistMessagesCache();
@@ -299,8 +596,9 @@ export class NexusChatElement extends HTMLElement {
       this.addBubble('Send a message first, then we can connect you with our team.', 'system');
       return;
     }
+    if (this.isHumanMode()) return;
     try {
-      const res = await fetch(`${API_URL}/v1/chat/escalate`, {
+      const res = await fetch(`${apiUrl()}/v1/chat/escalate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -310,8 +608,7 @@ export class NexusChatElement extends HTMLElement {
         }),
       });
       if (res.ok) {
-        this.conversationStatus = 'escalated';
-        this.startHumanPolling();
+        this.applyConversationMode('escalated');
         await this.pollHumanReplies();
       }
     } catch {
@@ -355,9 +652,24 @@ export class NexusChatElement extends HTMLElement {
   }
 
   private clearSessionForSite() {
+    this.abortInFlightChat();
+    this.stopHumanPolling();
+    this.sending = false;
+    this.consecutiveFailures = 0;
+    const oldId = this.conversationId;
+    if (this.siteId && oldId) {
+      try {
+        localStorage.removeItem(`nexus_messages_${this.siteId}_${oldId}`);
+      } catch {
+        // ignore
+      }
+    }
     if (this.siteId) localStorage.removeItem(this.conversationKey());
     this.conversationId = undefined;
     this.messages = [];
+    this.renderedMessageCount = 0;
+    this.conversationStatus = 'open';
+    this.aiLocked = false;
     const msgs = this.shadow.querySelector('[data-msgs]');
     if (msgs) msgs.innerHTML = '';
   }
@@ -380,24 +692,56 @@ export class NexusChatElement extends HTMLElement {
         visitorId: this.visitorId,
         conversationId: this.conversationId,
       });
-      const res = await fetch(`${API_URL}/v1/chat/history?${params}`);
+      const res = await fetch(`${apiUrl()}/v1/chat/history?${params}`);
       if (res.ok) {
         const data = (await res.json()) as {
           status: string;
-          messages: Array<{ role: string; content: string }>;
+          messages: Array<{
+            role: string;
+            content: string;
+            createdAt?: string;
+            meta?: Record<string, unknown>;
+          }>;
         };
         this.conversationStatus = data.status;
         for (const m of data.messages) {
-          this.messages.push({ role: m.role as ChatMessage['role'], content: m.content });
-          this.renderStoredMessage(m.role, m.content);
+          this.messages.push({
+            role: m.role as ChatMessage['role'],
+            content: m.content,
+            createdAt: m.createdAt,
+            meta: m.meta,
+          });
+          this.renderStoredMessage(m.role, m.content, m.meta, m.createdAt);
         }
         this.renderedMessageCount = data.messages.length;
-        if (this.conversationStatus === 'escalated' || this.conversationStatus === 'human') {
-          this.aiLocked = true;
-          this.setComposerEnabled(true);
-          this.startHumanPolling();
+        this.applyConversationMode(data.status);
+
+        // After human handoff + AI resume, never keep sending into that sticky thread —
+        // even across page reloads.
+        const resumedOnServer = data.messages.some(
+          (m) => m.role === 'system' && /back with the AI assistant/i.test(m.content),
+        );
+        if (data.status === 'open' && resumedOnServer) {
+          const oldId = this.conversationId;
+          if (this.siteId && oldId) {
+            try {
+              localStorage.removeItem(`nexus_messages_${this.siteId}_${oldId}`);
+            } catch {
+              // ignore
+            }
+          }
+          if (this.siteId) localStorage.removeItem(this.conversationKey());
+          this.conversationId = undefined;
+          this.consecutiveFailures = 0;
+          const notice =
+            'You are back with the AI assistant. Continuing in a fresh chat thread — send your message whenever you are ready.';
+          const at = new Date().toISOString();
+          this.addBubble(this.escape(notice), 'system', at);
+          this.messages.push({ role: 'system', content: notice, createdAt: at });
+          this.renderedMessageCount = this.messages.length;
+        } else {
+          this.persistMessagesCache();
         }
-        this.persistMessagesCache();
         return;
       }
     } catch {
@@ -413,9 +757,9 @@ export class NexusChatElement extends HTMLElement {
     if (!raw) return;
     try {
       const cached = JSON.parse(raw) as ChatMessage[];
-        for (const m of cached) {
+      for (const m of cached) {
         this.messages.push(m);
-        this.renderStoredMessage(m.role, m.content);
+        this.renderStoredMessage(m.role, m.content, m.meta, m.createdAt);
       }
       this.renderedMessageCount = cached.length;
     } catch {
@@ -423,15 +767,42 @@ export class NexusChatElement extends HTMLElement {
     }
   }
 
-  private renderStoredMessage(role: string, content: string) {
+  private renderStoredMessage(
+    role: string,
+    content: string,
+    meta?: Record<string, unknown>,
+    createdAt?: string,
+  ) {
     if (role === 'user') {
-      this.addBubble(this.escape(content), 'user');
+      this.addBubble(this.escape(content), 'user', createdAt);
     } else if (role === 'assistant') {
-      const el = this.addBubble('', 'assistant');
+      const el = this.addBubble('', 'assistant', createdAt);
       this.setAssistantContent(el, content, false);
+      const sources = meta?.provenance as Array<Record<string, unknown>> | undefined;
+      if (sources?.length) this.attachProvenance(el, sources);
     } else if (role === 'system') {
-      this.addBubble(this.escape(content), 'system');
+      this.addBubble(this.escape(content), 'system', createdAt);
     }
+  }
+
+  private attachProvenance(el: HTMLElement, sources: Array<Record<string, unknown>>) {
+    const details = document.createElement('details');
+    details.className = 'provenance';
+    const summary = document.createElement('summary');
+    summary.textContent = `Sources used (${sources.length})`;
+    const list = document.createElement('ul');
+    list.className = 'provenance-list';
+    for (const s of sources) {
+      const li = document.createElement('li');
+      if (s.cached) li.classList.add('cached');
+      const label = String(s.operationId ?? s.path ?? 'api');
+      li.textContent = s.cached ? `${label} · cached` : label;
+      list.appendChild(li);
+    }
+    details.append(summary, list);
+    const timeEl = el.querySelector('.bubble-time');
+    if (timeEl) el.insertBefore(details, timeEl);
+    else el.appendChild(details);
   }
 
   private render() {
@@ -494,7 +865,46 @@ export class NexusChatElement extends HTMLElement {
           justify-content: space-between;
           align-items: center;
           gap: 8px;
+          transition: background 0.2s ease, border-color 0.2s ease;
         }
+        .root.queue-mode header {
+          background: #292524;
+          border-bottom-color: #78350f;
+        }
+        .root.live-human-mode header {
+          background: #1c1917;
+          border-bottom-color: #b45309;
+        }
+        .root.human-mode .panel {
+          border-color: #b45309;
+          box-shadow: 0 20px 50px rgba(180, 83, 9, 0.25);
+        }
+        .mode-banner {
+          display: flex;
+          flex-direction: column;
+          gap: 2px;
+          padding: 10px 14px;
+          font-size: 12px;
+          line-height: 1.4;
+          border-bottom: 1px solid #78350f;
+          background: linear-gradient(90deg, #451a03, #292524);
+          color: #fed7aa;
+        }
+        .mode-banner[hidden] { display: none !important; }
+        .mode-banner strong {
+          font-size: 12px;
+          font-weight: 700;
+          color: #fdba74;
+        }
+        .mode-banner span { color: #fdba74; opacity: 0.9; }
+        .mode-banner[data-mode='human'] {
+          background: linear-gradient(90deg, #7c2d12, #431407);
+          border-bottom-color: #ea580c;
+        }
+        .mode-banner[data-mode='human'] strong,
+        .mode-banner[data-mode='human'] span { color: #ffedd5; }
+        .root.queue-mode .status { color: #fb923c; }
+        .root.live-human-mode .status { color: #fdba74; }
         .header-left { display: flex; align-items: center; gap: 10px; min-width: 0; }
         .header-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
         .icon-btn {
@@ -515,8 +925,22 @@ export class NexusChatElement extends HTMLElement {
         .status { font-size: 11px; color: #34d399; font-weight: 500; white-space: nowrap; }
         .msgs { flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 8px; }
         .bubble { max-width: 92%; padding: 10px 14px; border-radius: 12px; line-height: 1.5; word-break: break-word; }
+        .bubble-body { display: block; }
+        .bubble-time {
+          display: block;
+          margin-top: 6px;
+          font-size: 10px;
+          line-height: 1.2;
+          opacity: 0.75;
+          text-align: right;
+          font-variant-numeric: tabular-nums;
+        }
         .user { align-self: flex-end; background: var(--nexus-primary, #059669); color: white; border-bottom-right-radius: 4px; white-space: pre-wrap; }
+        .user .bubble-time { color: rgba(255,255,255,0.75); }
         .assistant { align-self: flex-start; background: #27272a; border-bottom-left-radius: 4px; }
+        .assistant .bubble-time { color: #71717a; text-align: left; }
+        .system { align-self: center; background: #1e293b; color: #94a3b8; font-size: 12px; text-align: center; max-width: 95%; }
+        .system .bubble-time { text-align: center; color: #64748b; }
         .assistant .md p { margin: 0 0 10px; }
         .assistant .md p:last-child { margin-bottom: 0; }
         .assistant .md h4, .assistant .md h5, .assistant .md h6 {
@@ -541,16 +965,78 @@ export class NexusChatElement extends HTMLElement {
           border-radius: 4px;
           color: #34d399;
         }
-        .assistant .md a { color: #34d399; text-decoration: underline; }
+        .assistant .md a {
+          color: #34d399;
+          text-decoration: underline;
+          text-underline-offset: 2px;
+          font-weight: 500;
+          cursor: pointer;
+        }
+        .assistant .md a:hover { color: #6ee7b7; }
         .assistant .md.streaming { white-space: pre-wrap; }
-        .system { align-self: center; background: #1e293b; color: #94a3b8; font-size: 12px; text-align: center; max-width: 95%; }
         .approval { border: 1px solid #d97706; background: #451a03; padding: 10px; border-radius: 8px; align-self: flex-start; max-width: 90%; }
         .approval p { margin: 0 0 8px; font-size: 13px; }
         .approval button { margin-right: 6px; padding: 6px 12px; border-radius: 6px; border: none; cursor: pointer; font-size: 12px; }
         .confirm { background: #059669; color: white; }
         .decline { background: #3f3f46; color: #fafafa; }
-        .undo { align-self: flex-start; font-size: 12px; }
+        .undo { align-self: flex-start; font-size: 12px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
         .undo button { background: #27272a; border: 1px solid #52525b; color: #fafafa; padding: 4px 10px; border-radius: 6px; cursor: pointer; }
+        .provenance {
+          margin-top: 8px;
+          border-top: 1px solid #27272a;
+          padding-top: 6px;
+        }
+        .provenance summary {
+          cursor: pointer;
+          color: #71717a;
+          font-size: 11px;
+          list-style: none;
+        }
+        .provenance summary::-webkit-details-marker { display: none; }
+        .provenance-list {
+          margin: 6px 0 0;
+          padding: 0;
+          list-style: none;
+          display: flex;
+          flex-wrap: wrap;
+          gap: 4px;
+        }
+        .provenance-list li {
+          font-size: 10px;
+          font-family: ui-monospace, monospace;
+          border: 1px solid #3f3f46;
+          background: #18181b;
+          color: #a1a1aa;
+          border-radius: 999px;
+          padding: 2px 8px;
+        }
+        .provenance-list li.cached { border-color: #05966955; color: #34d399; }
+        .dry-run {
+          margin: 8px 0;
+          padding: 8px;
+          border-radius: 6px;
+          background: #18181b;
+          border: 1px solid #3f3f46;
+          font-family: ui-monospace, monospace;
+          font-size: 11px;
+          color: #d4d4d8;
+          white-space: pre-wrap;
+          word-break: break-word;
+        }
+        .mission {
+          align-self: flex-start;
+          max-width: 90%;
+          border: 1px solid #334155;
+          background: #0f172a;
+          border-radius: 8px;
+          padding: 10px 12px;
+        }
+        .mission h4 { margin: 0 0 8px; font-size: 13px; color: #e2e8f0; }
+        .mission ol { margin: 0; padding-left: 18px; color: #94a3b8; font-size: 12px; }
+        .mission li { margin: 4px 0; }
+        .mission li.done { color: #34d399; }
+        .mission li.active { color: #fbbf24; }
+        .mission li.pending { color: #64748b; }
         footer { border-top: 1px solid #27272a; padding: 10px; display: flex; gap: 8px; flex-direction: column; }
         form { display: flex; gap: 8px; align-items: flex-end; }
         textarea[data-composer] {
@@ -608,7 +1094,30 @@ export class NexusChatElement extends HTMLElement {
           padding: 4px 8px;
           cursor: pointer;
         }
-        .escalate-btn:hover { color: #fafafa; border-color: #52525b; }
+        .escalate-btn:hover:not(:disabled) { color: #fafafa; border-color: #52525b; }
+        .escalate-btn:disabled {
+          cursor: default;
+          opacity: 1;
+          color: #fdba74;
+          border-color: #b45309;
+          background: rgba(180, 83, 9, 0.2);
+        }
+        .new-chat-btn {
+          font-size: 10px;
+          color: #a1a1aa;
+          background: none;
+          border: 1px solid #3f3f46;
+          border-radius: 6px;
+          padding: 4px 8px;
+          cursor: pointer;
+        }
+        .new-chat-btn:hover:not(:disabled) { color: #fafafa; border-color: #52525b; }
+        .new-chat-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+        .root.live-human-mode .escalate-btn:disabled {
+          color: #ffedd5;
+          border-color: #ea580c;
+          background: rgba(234, 88, 12, 0.25);
+        }
         .trace-toggle { font-size: 11px; color: #71717a; background: none; border: none; cursor: pointer; text-align: left; padding: 0; }
         .trace { font-size: 10px; font-family: monospace; color: #71717a; max-height: 80px; overflow-y: auto; background: #18181b; padding: 6px; border-radius: 6px; display: none; }
         .trace.open { display: block; }
@@ -652,6 +1161,7 @@ export class NexusChatElement extends HTMLElement {
               <span class="status" data-subtitle>● Online</span>
             </div>
             <div class="header-actions">
+              <button type="button" class="new-chat-btn" data-new-chat title="Start a fresh AI conversation">New</button>
               <button type="button" class="escalate-btn" data-escalate>Human</button>
               <button type="button" class="icon-btn" data-minimize aria-label="Minimize chat">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
@@ -660,6 +1170,7 @@ export class NexusChatElement extends HTMLElement {
               </button>
             </div>
           </header>
+          <div class="mode-banner" data-mode-banner hidden></div>
           <div class="msgs" data-msgs></div>
           <footer>
             <button type="button" class="trace-toggle" data-toggle>See how this was handled</button>
@@ -700,19 +1211,40 @@ export class NexusChatElement extends HTMLElement {
     this.shadow.querySelector('[data-typing]')?.remove();
   }
 
+  private formatChatTime(iso?: string): string {
+    const d = iso ? new Date(iso) : new Date();
+    if (Number.isNaN(d.getTime())) return '';
+    try {
+      return new Intl.DateTimeFormat(undefined, {
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+      }).format(d);
+    } catch {
+      return d.toLocaleString();
+    }
+  }
+
   private setAssistantContent(el: HTMLElement, text: string, streaming: boolean) {
+    const timeEl = el.querySelector('.bubble-time');
+    const timeHtml = timeEl?.outerHTML ?? '';
     if (streaming) {
-      el.innerHTML = `<div class="md streaming">${streamingPlainText(text)}</div>`;
+      el.innerHTML = `<div class="bubble-body md streaming">${streamingPlainText(text)}</div>${timeHtml}`;
     } else {
-      el.innerHTML = `<div class="md">${renderMarkdown(text)}</div>`;
+      el.innerHTML = `<div class="bubble-body md">${renderMarkdown(text)}</div>${timeHtml}`;
     }
     this.msgsEl().scrollTop = this.msgsEl().scrollHeight;
   }
 
-  private addBubble(html: string, className: string) {
+  private addBubble(html: string, className: string, createdAt?: string) {
     const el = document.createElement('div');
     el.className = `bubble ${className}`;
-    el.innerHTML = html;
+    const timeLabel = this.formatChatTime(createdAt);
+    el.innerHTML = `<div class="bubble-body">${html}</div>${
+      timeLabel ? `<time class="bubble-time" datetime="${this.escapeAttr(createdAt || new Date().toISOString())}">${this.escape(timeLabel)}</time>` : ''
+    }`;
     this.msgsEl().appendChild(el);
     this.msgsEl().scrollTop = this.msgsEl().scrollHeight;
     return el;
@@ -750,48 +1282,67 @@ export class NexusChatElement extends HTMLElement {
   }
 
   private applyGuardrailHandoff(payload: Record<string, unknown>) {
-    this.aiLocked = true;
-    this.conversationStatus = 'escalated';
     this.renderGuardrailCard(payload);
-    this.startHumanPolling();
-    this.setComposerEnabled(true);
+    this.applyConversationMode('escalated');
   }
 
   private async onSubmit(e: SubmitEvent) {
     e.preventDefault();
+    if (this.sending) return;
+
     const form = e.target as HTMLFormElement;
     const composer = form.querySelector('[data-composer]') as HTMLTextAreaElement;
     const text = composer.value.trim();
     if (!text || !this.siteId) return;
 
-    if (this.aiLocked && this.conversationStatus !== 'escalated' && this.conversationStatus !== 'human') {
+    if (this.aiLocked && !this.isHumanMode()) {
+      this.applyConversationMode(this.conversationStatus || 'open');
+    }
+
+    if (this.aiLocked && !this.isHumanMode()) {
       return;
     }
+
+    this.sending = true;
+    this.abortInFlightChat();
+    const abort = new AbortController();
+    this.chatAbort = abort;
 
     composer.value = '';
     composer.style.height = 'auto';
     composer.disabled = true;
     const submitBtn = form.querySelector('button[type=submit]') as HTMLButtonElement;
     if (submitBtn) submitBtn.disabled = true;
+    const newChatBtn = this.shadow.querySelector('[data-new-chat]') as HTMLButtonElement | null;
+    if (newChatBtn) newChatBtn.disabled = true;
 
-    this.messages.push({ role: 'user', content: text });
-    this.addBubble(this.escape(text), 'user');
+    const sentAt = new Date().toISOString();
+    this.messages.push({ role: 'user', content: text, createdAt: sentAt });
+    this.addBubble(this.escape(text), 'user', sentAt);
     this.persistMessagesCache();
     this.showTyping();
 
     let assistantEl: HTMLElement | null = null;
     let assistantText = '';
+    let pendingProvenance: Array<Record<string, unknown>> | null = null;
+    let assistantCreatedAt = '';
+    let forceFreshAfterErrors = false;
 
     try {
-      const res = await fetch(`${API_URL}/v1/chat`, {
+      const body: Record<string, string> = {
+        siteId: this.siteId,
+        visitorId: this.visitorId,
+        message: text,
+      };
+      if (this.conversationId) {
+        body.conversationId = this.conversationId;
+      }
+
+      const res = await fetch(`${apiUrl()}/v1/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          siteId: this.siteId,
-          visitorId: this.visitorId,
-          message: text,
-          conversationId: this.conversationId,
-        }),
+        body: JSON.stringify(body),
+        signal: abort.signal,
       });
 
       if (!res.ok || !res.body) throw new Error('Chat request failed');
@@ -809,7 +1360,12 @@ export class NexusChatElement extends HTMLElement {
 
         for (const line of lines) {
           if (!line.startsWith('data: ')) continue;
-          const payload = JSON.parse(line.slice(6)) as Record<string, unknown>;
+          let payload: Record<string, unknown>;
+          try {
+            payload = JSON.parse(line.slice(6)) as Record<string, unknown>;
+          } catch {
+            continue;
+          }
 
           if (payload.type === 'conversation') {
             this.saveConversationId(payload.conversationId as string);
@@ -819,10 +1375,16 @@ export class NexusChatElement extends HTMLElement {
           } else if (payload.type === 'handoff') {
             this.hideTyping();
             this.addBubble(this.escape(String(payload.label)), 'system');
+            this.messages.push({
+              role: 'system',
+              content: String(payload.label),
+              createdAt: new Date().toISOString(),
+            });
           } else if (payload.type === 'token') {
             if (!assistantEl) {
               this.hideTyping();
-              assistantEl = this.addBubble('', 'assistant');
+              assistantCreatedAt = new Date().toISOString();
+              assistantEl = this.addBubble('', 'assistant', assistantCreatedAt);
             }
             assistantText += String(payload.content);
             this.setAssistantContent(assistantEl, assistantText, true);
@@ -830,51 +1392,146 @@ export class NexusChatElement extends HTMLElement {
             this.renderApproval(payload);
           } else if (payload.type === 'undo_available') {
             this.renderUndo(payload);
+          } else if (payload.type === 'mission_plan') {
+            this.renderMissionPlan(payload);
+          } else if (payload.type === 'provenance') {
+            pendingProvenance = (payload.sources as Array<Record<string, unknown>>) ?? [];
           } else if (payload.type === 'trace') {
             this.trace = payload.steps as TraceStep[];
           } else if (payload.type === 'error') {
             this.hideTyping();
-            this.addBubble(this.escape(String(payload.message)), 'system');
+            const raw = String(payload.message ?? 'Something went wrong');
+            const friendly =
+              raw === 'fetch failed' || /ECONNREFUSED|unreachable/i.test(raw)
+                ? 'Sorry — I could not finish that just now. Please try again in a moment.'
+                : raw;
+            if (!assistantEl) {
+              assistantCreatedAt = new Date().toISOString();
+              assistantEl = this.addBubble('', 'assistant', assistantCreatedAt);
+            }
+            assistantText = friendly;
+            this.setAssistantContent(assistantEl, assistantText, false);
           } else if (payload.type === 'guardrail') {
             this.hideTyping();
             this.applyGuardrailHandoff(payload);
           } else if (payload.type === 'done') {
             if (assistantEl && assistantText) {
               this.setAssistantContent(assistantEl, assistantText, false);
+              if (pendingProvenance?.length) {
+                this.attachProvenance(assistantEl, pendingProvenance);
+              }
             }
           }
         }
       }
 
       if (assistantText) {
-        this.messages.push({ role: 'assistant', content: assistantText });
+        this.messages.push({
+          role: 'assistant',
+          content: assistantText,
+          createdAt: assistantCreatedAt || new Date().toISOString(),
+          meta: pendingProvenance?.length ? { provenance: pendingProvenance } : undefined,
+        });
         if (assistantEl) {
           this.setAssistantContent(assistantEl, assistantText, false);
+          if (pendingProvenance?.length && !assistantEl.querySelector('.provenance')) {
+            this.attachProvenance(assistantEl, pendingProvenance);
+          }
+        }
+
+        if (RECOVERY_REPLY.test(assistantText)) {
+          this.consecutiveFailures += 1;
+          const recovered = await this.tryRecoverReplyFromServer(text, assistantEl);
+          if (recovered) {
+            assistantText = recovered;
+            this.consecutiveFailures = 0;
+            // Replace last assistant message in local cache
+            for (let i = this.messages.length - 1; i >= 0; i--) {
+              if (this.messages[i].role === 'assistant') {
+                this.messages[i] = {
+                  ...this.messages[i],
+                  content: recovered,
+                };
+                break;
+              }
+            }
+          } else if (this.consecutiveFailures >= 2) {
+            forceFreshAfterErrors = true;
+          }
+        } else {
+          this.consecutiveFailures = 0;
+        }
+      } else {
+        // Stream ended with no tokens — server may still have saved a reply.
+        const recovered = await this.tryRecoverReplyFromServer(text, null);
+        if (recovered) {
+          assistantText = recovered;
+          const at = new Date().toISOString();
+          assistantEl = this.addBubble('', 'assistant', at);
+          this.setAssistantContent(assistantEl, recovered, false);
+          this.messages.push({ role: 'assistant', content: recovered, createdAt: at });
+          this.consecutiveFailures = 0;
         }
       }
       this.persistMessagesCache();
     } catch (err) {
+      const aborted = err instanceof DOMException && err.name === 'AbortError';
+      if (!aborted) {
+        this.hideTyping();
+        // Prefer server-persisted reply over a local connection error bubble.
+        const recovered = await this.tryRecoverReplyFromServer(text, null);
+        if (recovered) {
+          const at = new Date().toISOString();
+          const el = this.addBubble('', 'assistant', at);
+          this.setAssistantContent(el, recovered, false);
+          this.messages.push({ role: 'assistant', content: recovered, createdAt: at });
+          this.persistMessagesCache();
+          this.consecutiveFailures = 0;
+        } else {
+          const recovery =
+            'Sorry — connection issue. Please try sending your message again.';
+          const at = new Date().toISOString();
+          this.addBubble(this.escape(recovery), 'assistant', at);
+          this.messages.push({ role: 'assistant', content: recovery, createdAt: at });
+          this.persistMessagesCache();
+          this.consecutiveFailures += 1;
+          if (this.consecutiveFailures >= 2) forceFreshAfterErrors = true;
+        }
+      }
+    } finally {
+      if (this.chatAbort === abort) this.chatAbort = undefined;
+      this.sending = false;
       this.hideTyping();
-      this.addBubble('Connection error. Please try again.', 'system');
+      if (forceFreshAfterErrors) {
+        this.beginFreshAiThread(
+          'This chat hit repeated errors, so a fresh thread was started. Please send your message again.',
+          false,
+        );
+      } else {
+        this.applyConversationMode(this.conversationStatus);
+      }
+      this.composerEl()?.focus();
     }
-
-    this.hideTyping();
-    this.setComposerEnabled(true);
-    this.composerEl()?.focus();
   }
 
   private renderApproval(payload: Record<string, unknown>) {
     const el = document.createElement('div');
     el.className = 'approval';
-    el.innerHTML = `<p><strong>Approval required</strong><br/>${this.escape(String(payload.summary))}</p>`;
+    const dryRun = payload.dryRun as Record<string, unknown> | undefined;
+    const dryRunHtml = dryRun
+      ? `<div class="dry-run">${this.escape(String(dryRun.method))} ${this.escape(String(dryRun.path))}\n${this.escape(JSON.stringify(dryRun.payload ?? {}, null, 2))}</div>`
+      : '';
+    el.innerHTML = `<p><strong>Approval required</strong><br/>${this.escape(String(payload.summary))}</p>
+      <p style="font-size:11px;color:#a1a1aa;margin:0 0 6px;">Risk: ${this.escape(String(payload.riskTier ?? 'write'))}</p>
+      ${dryRunHtml}`;
     const confirm = document.createElement('button');
     confirm.className = 'confirm';
-    confirm.textContent = 'Confirm';
+    confirm.textContent = 'Confirm action';
     const decline = document.createElement('button');
     decline.className = 'decline';
     decline.textContent = 'Decline';
     confirm.onclick = async () => {
-      await fetch(`${API_URL}/v1/chat/approve`, {
+      await fetch(`${apiUrl()}/v1/chat/approve`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ token: payload.token }),
@@ -882,7 +1539,10 @@ export class NexusChatElement extends HTMLElement {
       el.remove();
       this.addBubble('Action confirmed and executed.', 'system');
     };
-    decline.onclick = () => el.remove();
+    decline.onclick = () => {
+      el.remove();
+      this.addBubble('Action declined. Nothing was changed.', 'system');
+    };
     el.append(confirm, decline);
     this.msgsEl().appendChild(el);
   }
@@ -894,20 +1554,43 @@ export class NexusChatElement extends HTMLElement {
     const btn = document.createElement('button');
     btn.textContent = 'Undo';
     btn.onclick = async () => {
-      await fetch(`${API_URL}/v1/chat/undo/${payload.executionId}`, { method: 'POST' });
+      const res = await fetch(`${apiUrl()}/v1/chat/undo/${payload.executionId}`, { method: 'POST' });
       el.remove();
-      this.addBubble('Action undone.', 'system');
+      this.addBubble(res.ok ? 'Action undone.' : 'Could not undo this action.', 'system');
     };
+    const label = document.createElement('span');
+    label.style.color = '#a1a1aa';
+    label.textContent = String(payload.summary ?? 'Undo available');
     const timer = document.createElement('span');
-    timer.style.marginLeft = '8px';
     timer.style.color = '#a1a1aa';
     const interval = setInterval(() => {
       const sec = Math.max(0, Math.floor((deadline.getTime() - Date.now()) / 1000));
-      timer.textContent = `${sec}s`;
-      if (sec <= 0) { clearInterval(interval); el.remove(); }
+      timer.textContent = `${sec}s left`;
+      if (sec <= 0) {
+        clearInterval(interval);
+        el.remove();
+      }
     }, 1000);
-    el.append(btn, timer);
+    el.append(btn, label, timer);
     this.msgsEl().appendChild(el);
+  }
+
+  private renderMissionPlan(payload: Record<string, unknown>) {
+    const el = document.createElement('div');
+    el.className = 'mission';
+    const steps = (payload.steps as Array<Record<string, unknown>>) ?? [];
+    const current = Number(payload.currentStep ?? 0);
+    const title = String(payload.title ?? 'Action plan');
+    const items = steps
+      .map((s, i) => {
+        const cls = i < current ? 'done' : i === current ? 'active' : 'pending';
+        const label = String(s.label ?? s.operationId ?? `Step ${i + 1}`);
+        return `<li class="${cls}">${this.escape(label)}</li>`;
+      })
+      .join('');
+    el.innerHTML = `<h4>${this.escape(title)}</h4><ol>${items}</ol>`;
+    this.msgsEl().appendChild(el);
+    this.msgsEl().scrollTop = this.msgsEl().scrollHeight;
   }
 
   private escape(s: string) {

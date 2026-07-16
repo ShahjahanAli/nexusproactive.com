@@ -1,10 +1,12 @@
 import cron from 'node-cron';
 import { reingestAllSites } from '../services/actionGraph';
 import { clusterProductSignals } from '../services/productSignals';
+import { scanAllSitesActionHealth } from '../services/actionHealth';
 import { query } from '../db';
 
 const REINGEST_CRON = process.env.ACTION_GRAPH_CRON ?? '0 3 * * *';
 const SIGNALS_CRON = process.env.SIGNALS_CRON ?? '0 4 * * *';
+const HEALTH_CRON = process.env.ACTION_HEALTH_CRON ?? '0 */6 * * *';
 
 export function startScheduledJobs(): void {
   cron.schedule(REINGEST_CRON, () => {
@@ -26,6 +28,14 @@ export function startScheduledJobs(): void {
     }
   });
 
+  cron.schedule(HEALTH_CRON, () => {
+    console.log('[cron] Scanning action health...');
+    scanAllSitesActionHealth()
+      .then((n) => console.log(`[cron] Created ${n} action health events`))
+      .catch((err) => console.error('[cron] Action health scan failed:', err));
+  });
+
   console.log(`[cron] Action Graph re-ingest: ${REINGEST_CRON}`);
   console.log(`[cron] Product signals: ${SIGNALS_CRON}`);
+  console.log(`[cron] Action health: ${HEALTH_CRON}`);
 }
