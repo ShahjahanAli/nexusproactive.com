@@ -1,11 +1,12 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { AUTH_COOKIE, getApiUrl } from '@/lib/config';
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   const cookieStore = await cookies();
   const token = cookieStore.get(AUTH_COOKIE)?.value;
-  const res = await fetch(getApiUrl('/signals'), {
+  const qs = req.nextUrl.searchParams.toString();
+  const res = await fetch(getApiUrl(`/signals${qs ? `?${qs}` : ''}`), {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
     cache: 'no-store',
   });

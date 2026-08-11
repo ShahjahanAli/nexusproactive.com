@@ -6,12 +6,12 @@ const sizes = {
 };
 
 const variants = {
-  default: 'border-zinc-700/80 bg-zinc-900/80 text-zinc-300',
-  success: 'border-emerald-500/40 bg-emerald-500/10 text-emerald-400',
-  warning: 'border-amber-500/40 bg-amber-500/10 text-amber-400',
-  danger: 'border-red-500/40 bg-red-500/10 text-red-400',
-  info: 'border-cyan-500/40 bg-cyan-500/10 text-cyan-400',
-  tactical: 'border-amber-600/30 bg-amber-950/40 text-amber-400',
+  default: 'border-zinc-700 bg-zinc-900/80 text-zinc-300',
+  success: 'border-emerald-500/50 bg-emerald-500/10 text-emerald-400',
+  warning: 'border-amber-500/50 bg-amber-500/10 text-amber-400',
+  danger: 'border-red-500/50 bg-red-500/10 text-red-400',
+  info: 'border-cyan-500/50 bg-cyan-500/10 text-cyan-400',
+  tactical: 'border-amber-600/50 bg-amber-950/60 text-amber-400',
 };
 
 export function Badge({

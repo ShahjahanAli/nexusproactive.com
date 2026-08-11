@@ -67,6 +67,57 @@ router.post('/escalate', async (req, res) => {
   res.json(result);
 });
 
+router.post('/rating', async (req, res) => {
+  corsPublic(res);
+  const schema = z.object({
+    siteId: z.string().uuid(),
+    visitorId: z.string().min(1),
+    conversationId: z.string().uuid(),
+    score: z.number().int().min(1).max(5),
+    comment: z.string().max(1000).optional(),
+  });
+  const body = schema.parse(req.body);
+
+  const { queryOne } = await import('../db');
+  const conv = await queryOne<{
+    id: string;
+    site_id: string;
+    visitor_id: string;
+    cx_agent_id: string | null;
+  }>(
+    `SELECT id, site_id, visitor_id, cx_agent_id FROM conversations WHERE id = $1`,
+    [body.conversationId],
+  );
+  if (!conv || conv.site_id !== body.siteId || conv.visitor_id !== body.visitorId) {
+    res.status(404).json({ error: 'Conversation not found' });
+    return;
+  }
+  if (!conv.cx_agent_id) {
+    res.status(400).json({ error: 'No CX Agent on this conversation' });
+    return;
+  }
+  const tenantId = await getSiteTenantId(body.siteId);
+  if (!tenantId) {
+    res.status(404).json({ error: 'Site not found' });
+    return;
+  }
+  try {
+    const { submitCxRating } = await import('../services/cxSalesRatings');
+    const rating = await submitCxRating({
+      tenantId,
+      conversationId: body.conversationId,
+      cxAgentId: conv.cx_agent_id,
+      visitorId: body.visitorId,
+      score: body.score,
+      comment: body.comment,
+    });
+    res.json({ ok: true, rating });
+  } catch (err) {
+    const e = err as Error & { status?: number; code?: string };
+    res.status(e.status ?? 500).json({ error: e.message, code: e.code });
+  }
+});
+
 router.post('/context', async (req, res) => {
   corsPublic(res);
   const schema = z.object({

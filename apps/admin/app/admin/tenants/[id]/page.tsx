@@ -96,7 +96,7 @@ export default async function TenantDetailPage({
                 <li key={u.id} className="flex items-center justify-between px-4 py-3 sm:px-5">
                   <div>
                     <p className="text-sm text-zinc-200">{u.email}</p>
-                    <p className="font-mono text-[10px] uppercase text-zinc-600">{u.role}</p>
+                    <p className="font-mono text-[10px] uppercase text-zinc-500">{u.role}</p>
                   </div>
                 </li>
               ))}

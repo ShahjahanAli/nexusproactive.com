@@ -7,6 +7,9 @@ export interface Conversation {
   visitor_id: string;
   status: string;
   active_agent: string;
+  cx_agent_id?: string | null;
+  detected_language?: string | null;
+  handoff_brief?: string | null;
   created_at: string;
 }
 
@@ -58,11 +61,38 @@ export async function conversationResumedFromHuman(conversationId: string): Prom
     `SELECT id FROM messages
      WHERE conversation_id = $1
        AND role = 'system'
-       AND content ILIKE '%back with the AI assistant%'
+       AND (
+         meta->>'kind' = 'ai_resume'
+         OR content ILIKE '%back with the AI assistant%'
+         OR content ILIKE '%de nouveau avec l%assistant%'
+       )
      LIMIT 1`,
     [conversationId],
   );
   return Boolean(row);
+}
+
+/**
+ * Keep `detected_language` current from visitor text so live chats show a
+ * language marker before any handoff happens. Mutates the passed conversation
+ * so the current turn already uses the new language.
+ */
+export async function noteVisitorLanguage(
+  conversation: Conversation,
+  message: string,
+): Promise<string | null> {
+  const { detectLanguage } = await import('./languageDetect');
+  const guess = detectLanguage([message]);
+  if (!guess.confident || guess.language === conversation.detected_language) {
+    return conversation.detected_language ?? null;
+  }
+
+  await queryOne('UPDATE conversations SET detected_language = $1 WHERE id = $2', [
+    guess.language,
+    conversation.id,
+  ]);
+  conversation.detected_language = guess.language;
+  return guess.language;
 }
 
 export async function setActiveAgent(

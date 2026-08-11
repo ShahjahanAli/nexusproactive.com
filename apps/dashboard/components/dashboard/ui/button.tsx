@@ -86,3 +86,27 @@ export function Input({
     </div>
   );
 }
+
+export function Textarea({
+  label,
+  hint,
+  className = '',
+  ...props
+}: React.TextareaHTMLAttributes<HTMLTextAreaElement> & { label?: string; hint?: string }) {
+  return (
+    <div>
+      {label && (
+        <label className="mb-1.5 block text-sm font-medium text-zinc-300">
+          {label}
+        </label>
+      )}
+      <textarea
+        className={`w-full rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2.5 text-sm text-zinc-100 placeholder:text-zinc-600 outline-none transition focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/15 ${className}`}
+        {...props}
+      />
+      {hint && (
+        <p className="mt-1.5 text-xs leading-relaxed text-zinc-500">{hint}</p>
+      )}
+    </div>
+  );
+}

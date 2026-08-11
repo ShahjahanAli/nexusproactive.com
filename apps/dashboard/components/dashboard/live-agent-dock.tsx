@@ -4,7 +4,9 @@ import Link from 'next/link';
 import { FormEvent, useCallback, useEffect, useRef, useState } from 'react';
 import type { AuthUser } from '@nexus/shared-types';
 import { formatDateTime } from '@/lib/datetime';
+import { languageInfo } from '@/lib/language';
 import { Button } from './ui/button';
+import { LanguageTag } from './ui/language-tag';
 
 interface Thread {
   id: string;
@@ -16,6 +18,8 @@ interface Thread {
   escalated_at: string | null;
   assigned_to: string | null;
   assigned_email: string | null;
+  detected_language: string | null;
+  handoff_brief: string | null;
   message_count: number;
   last_message_at: string | null;
   last_message_preview: string | null;
@@ -58,6 +62,10 @@ function statusMeta(status: string): { label: string; className: string } {
   return { label: 'AI', className: 'bg-sky-500/20 text-sky-400' };
 }
 
+function languageBadge(code: string | null | undefined) {
+  return languageInfo(code);
+}
+
 function isNearBottom(el: HTMLElement, thresholdPx = 96): boolean {
   return el.scrollHeight - el.scrollTop - el.clientHeight <= thresholdPx;
 }
@@ -86,6 +94,9 @@ export function LiveAgentDock({
   const [threads, setThreads] = useState<Thread[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [handoffBrief, setHandoffBrief] = useState<string | null>(null);
+  const [detectedLanguage, setDetectedLanguage] = useState<string | null>(null);
+  const [briefHidden, setBriefHidden] = useState(false);
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -122,9 +133,15 @@ export function LiveAgentDock({
     try {
       const res = await fetch(`/api/conversations/${id}/messages`, { cache: 'no-store' });
       if (!res.ok) return;
-      const data = (await res.json()) as { messages?: ChatMessage[] };
+      const data = (await res.json()) as {
+        messages?: ChatMessage[];
+        handoff_brief?: string | null;
+        detected_language?: string | null;
+      };
       const next = data.messages ?? [];
       setMessages((prev) => (messagesUnchanged(prev, next) ? prev : next));
+      setHandoffBrief(data.handoff_brief ?? null);
+      setDetectedLanguage(data.detected_language ?? null);
     } catch {
       /* ignore */
     }
@@ -166,6 +183,9 @@ export function LiveAgentDock({
     setExpanded(true);
     setError(null);
     setDraft('');
+    setHandoffBrief(null);
+    setDetectedLanguage(null);
+    setBriefHidden(false);
     await loadMessages(id);
     const thread = threads.find((t) => t.id === id);
     if (thread && thread.status === 'escalated') {
@@ -205,8 +225,15 @@ export function LiveAgentDock({
     setExpanded(false);
     setActiveId(null);
     setMessages([]);
+    setHandoffBrief(null);
+    setDetectedLanguage(null);
     void loadThreads();
   }
+
+  const activeLangCode = detectedLanguage ?? active?.detected_language ?? null;
+  const activeLang = languageBadge(activeLangCode);
+  const activeBrief = handoffBrief ?? active?.handoff_brief ?? null;
+  const showBrief = Boolean(activeBrief) && !briefHidden;
 
   return (
     <>
@@ -248,6 +275,7 @@ export function LiveAgentDock({
                   {threads.map((t) => {
                     const selected = t.id === activeId;
                     const meta = statusMeta(t.status);
+                    const lang = languageBadge(t.detected_language);
                     return (
                       <li key={t.id}>
                         <button
@@ -274,6 +302,11 @@ export function LiveAgentDock({
                                   >
                                     {meta.label}
                                   </span>
+                                  <LanguageTag
+                                    code={t.detected_language}
+                                    size="sm"
+                                    flagOnly={lang?.isEnglish}
+                                  />
                                 </span>
                               </span>
                               <span className="max-w-[7.5rem] shrink-0 text-right text-[10px] leading-tight text-zinc-500">
@@ -339,8 +372,9 @@ export function LiveAgentDock({
               {active.site_name.slice(0, 2).toUpperCase()}
             </span>
             <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-semibold text-zinc-100">
-                {shortVisitor(active.visitor_id)}
+              <p className="flex items-center gap-1.5 truncate text-sm font-semibold text-zinc-100">
+                <span className="truncate">{shortVisitor(active.visitor_id)}</span>
+                <LanguageTag code={activeLangCode} size="sm" showName />
               </p>
               <p className="truncate text-[11px] text-zinc-500">
                 {active.site_name} · {active.status}
@@ -382,6 +416,51 @@ export function LiveAgentDock({
               backgroundSize: '18px 18px',
             }}
           >
+            {showBrief && activeBrief && (
+              <div className="sticky top-0 z-10 mb-3 rounded-xl border border-violet-500/30 bg-zinc-950/95 p-3 shadow-lg shadow-black/40 backdrop-blur">
+                <div className="mb-1.5 flex items-center justify-between gap-2">
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-violet-300">
+                    Agent handoff brief
+                  </p>
+                  <div className="flex items-center gap-1.5">
+                    <LanguageTag code={activeLangCode} size="sm" showName />
+                    <button
+                      type="button"
+                      aria-label="Hide handoff brief"
+                      title="Hide brief"
+                      onClick={() => setBriefHidden(true)}
+                      className="inline-flex h-6 w-6 items-center justify-center rounded-md text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200"
+                    >
+                      <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M6 18L18 6M6 6l12 12"
+                        />
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+                <p className="whitespace-pre-wrap text-xs leading-relaxed text-zinc-300">
+                  {activeBrief}
+                </p>
+                <p className="mt-2 text-[10px] text-zinc-600">
+                  English summary for agents — visitor still sees the original language thread below.
+                </p>
+              </div>
+            )}
+            {activeBrief && briefHidden && (
+              <div className="mb-2 flex justify-center">
+                <button
+                  type="button"
+                  onClick={() => setBriefHidden(false)}
+                  className="rounded-full border border-violet-500/30 bg-violet-500/10 px-3 py-1 text-[10px] font-medium uppercase tracking-wider text-violet-300 hover:bg-violet-500/20"
+                >
+                  Show handoff brief{activeLang ? ` · ${activeLang.name}` : ''}
+                </button>
+              </div>
+            )}
             {messages
               .filter((m) => m.role !== 'tool')
               .map((m) => {

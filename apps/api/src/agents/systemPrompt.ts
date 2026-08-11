@@ -8,7 +8,12 @@ export function buildOrchestratorSystemPrompt(
   actions: ActionRow[],
   memoryContext?: string,
   contactContext?: string,
-  options?: { compactTools?: boolean; contactCollection?: boolean },
+  options?: {
+    compactTools?: boolean;
+    contactCollection?: boolean;
+    /** When set, CX Agent owns the visitor-facing role (specialist still scopes tools). */
+    cxRolePrompt?: string | null;
+  },
 ): string {
   const tz = getDisplayTimezone();
   const now = new Date();
@@ -34,9 +39,16 @@ When the visitor says "this September", "next month", "this year", etc., resolve
 - Decide whether they need a greeting, clarification, or a live data lookup via tools.
 - Do not refuse or stall because phrasing is imperfect.`;
 
-  const roleBlock = specialist
-    ? specialist.systemPrompt
-    : `Help visitors with questions about ${site.name}'s products, services, events, and account data.`;
+  const roleBlock = options?.cxRolePrompt?.trim()
+    ? options.cxRolePrompt.trim()
+    : specialist
+      ? specialist.systemPrompt
+      : `Help visitors with questions about ${site.name}'s products, services, events, and account data.`;
+
+  const specialistAssist =
+    options?.cxRolePrompt?.trim() && specialist
+      ? `\n\n## Domain assist (internal)\nYou are currently drawing on the **${specialist.name}** specialist skill set for tools and domain depth. Stay in your CX persona when speaking to the visitor.`
+      : '';
 
   const memoryBlock = memoryContext ? `\n\n${memoryContext}\n` : '';
   const contactBlock =
@@ -58,7 +70,7 @@ When the visitor says "this September", "next month", "this year", etc., resolve
   if (actions.length === 0) {
     return `${orgBlock}
 
-${roleBlock}${memoryBlock}${contactBlock}${contactRules}
+${roleBlock}${specialistAssist}${memoryBlock}${contactBlock}${contactRules}
 
 ## Backend APIs
 No active API tools are configured for this site. If the user asks for organization-specific data (conferences, orders, listings, account info, etc.), explain that backend APIs are not connected yet and they should contact the site administrator. Do not invent data or answer from general world knowledge.
@@ -114,7 +126,7 @@ ${toolCatalog}`;
 
   return `${orgBlock}
 
-${roleBlock}${memoryBlock}${contactBlock}${contactRules}
+${roleBlock}${specialistAssist}${memoryBlock}${contactBlock}${contactRules}
 
 ${toolBlock}
 

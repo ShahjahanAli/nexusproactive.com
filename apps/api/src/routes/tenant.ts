@@ -36,6 +36,7 @@ router.get('/limits/:metric', requireTenantAuth, async (req, res) => {
     'max_sites',
     'max_conversations_month',
     'max_tokens_month',
+    'max_cx_agents',
   ]);
   const metric = metricSchema.parse(req.params.metric);
   const result = await checkPlanLimit(req.tenantId!, metric);

@@ -3,12 +3,12 @@ import { ButtonHTMLAttributes, ReactNode } from 'react';
 
 const variants = {
   primary:
-    'border-amber-600/50 bg-amber-950/60 text-amber-400 hover:border-amber-500/70 hover:bg-amber-950',
+    'border-amber-600/70 bg-amber-950/70 text-amber-400 hover:border-amber-500 hover:bg-amber-950',
   secondary:
     'border-zinc-700 bg-zinc-900/80 text-zinc-300 hover:border-zinc-600 hover:text-zinc-100',
   ghost: 'border-transparent text-zinc-400 hover:bg-zinc-900/80 hover:text-zinc-200',
   danger:
-    'border-red-500/30 bg-red-950/40 text-red-400 hover:border-red-500/50 hover:bg-red-950/60',
+    'border-red-500/50 bg-red-950/50 text-red-400 hover:border-red-500 hover:bg-red-950/70',
 };
 
 const sizes = {
@@ -32,7 +32,7 @@ export function Button({
 }: BtnProps) {
   return (
     <button
-      className={`inline-flex items-center justify-center rounded border font-mono uppercase tracking-wider transition disabled:opacity-50 ${variants[variant]} ${sizes[size]} ${className}`}
+      className={`inline-flex items-center justify-center rounded border font-mono font-semibold uppercase tracking-wider transition disabled:opacity-50 ${variants[variant]} ${sizes[size]} ${className}`}
       {...props}
     >
       {children}
@@ -56,7 +56,7 @@ export function ButtonLink({
   return (
     <Link
       href={href}
-      className={`inline-flex items-center justify-center rounded border font-mono uppercase tracking-wider transition ${variants[variant]} ${sizes[size]} ${className}`}
+      className={`inline-flex items-center justify-center rounded border font-mono font-semibold uppercase tracking-wider transition ${variants[variant]} ${sizes[size]} ${className}`}
     >
       {children}
     </Link>
@@ -71,12 +71,12 @@ export function Input({
   return (
     <div>
       {label && (
-        <label className="mb-1.5 block font-mono text-[10px] uppercase tracking-wider text-zinc-500">
+        <label className="mb-1.5 block font-mono text-[10px] font-semibold uppercase tracking-wider text-zinc-400">
           {label}
         </label>
       )}
       <input
-        className={`w-full rounded border border-zinc-800 bg-zinc-950 px-3 py-2.5 font-mono text-sm text-zinc-100 placeholder:text-zinc-600 outline-none transition focus:border-amber-500/50 focus:ring-1 focus:ring-amber-500/20 ${className}`}
+        className={`w-full rounded border border-zinc-800 bg-zinc-950 px-3 py-2.5 font-mono text-sm text-zinc-100 placeholder:text-zinc-600 outline-none transition focus:border-amber-500 focus:ring-2 focus:ring-amber-500/30 ${className}`}
         {...props}
       />
     </div>
@@ -92,12 +92,12 @@ export function Select({
   return (
     <div>
       {label && (
-        <label className="mb-1.5 block font-mono text-[10px] uppercase tracking-wider text-zinc-500">
+        <label className="mb-1.5 block font-mono text-[10px] font-semibold uppercase tracking-wider text-zinc-400">
           {label}
         </label>
       )}
       <select
-        className={`w-full rounded border border-zinc-800 bg-zinc-950 px-3 py-2.5 font-mono text-sm text-zinc-100 outline-none transition focus:border-amber-500/50 focus:ring-1 focus:ring-amber-500/20 ${className}`}
+        className={`w-full rounded border border-zinc-800 bg-zinc-950 px-3 py-2.5 font-mono text-sm text-zinc-100 outline-none transition focus:border-amber-500 focus:ring-2 focus:ring-amber-500/30 ${className}`}
         {...props}
       >
         {children}
@@ -114,12 +114,12 @@ export function Textarea({
   return (
     <div>
       {label && (
-        <label className="mb-1.5 block font-mono text-[10px] uppercase tracking-wider text-zinc-500">
+        <label className="mb-1.5 block font-mono text-[10px] font-semibold uppercase tracking-wider text-zinc-400">
           {label}
         </label>
       )}
       <textarea
-        className={`w-full rounded border border-zinc-800 bg-zinc-950 px-3 py-2.5 font-mono text-sm text-zinc-100 placeholder:text-zinc-600 outline-none transition focus:border-amber-500/50 focus:ring-1 focus:ring-amber-500/20 ${className}`}
+        className={`w-full rounded border border-zinc-800 bg-zinc-950 px-3 py-2.5 font-mono text-sm text-zinc-100 placeholder:text-zinc-600 outline-none transition focus:border-amber-500 focus:ring-2 focus:ring-amber-500/30 ${className}`}
         {...props}
       />
     </div>

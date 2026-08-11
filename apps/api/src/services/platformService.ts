@@ -312,9 +312,13 @@ export async function syncPlanLimitsToTenants(planId: Plan): Promise<number> {
   );
   if (!plan) throw new AppError('Plan not found', 404, 'NOT_FOUND');
 
+  // Merge rather than replace: catalog values win on conflict, but any tenant-only
+  // keys (bespoke overrides for limits not in the catalog) survive the sync.
   const result = await queryOne<{ count: string }>(
     `WITH updated AS (
-       UPDATE tenants SET plan_limits = $2, updated_at = now()
+       UPDATE tenants
+       SET plan_limits = COALESCE(plan_limits, '{}'::jsonb) || $2::jsonb,
+           updated_at = now()
        WHERE plan = $1
        RETURNING id
      )

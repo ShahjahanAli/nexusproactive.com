@@ -1,25 +1,21 @@
 import { LandingHeader } from '@/components/landing/header';
 import { LandingHero } from '@/components/landing/hero';
-import { LandingOverview } from '@/components/landing/overview';
 import { LandingFeatures } from '@/components/landing/features';
+import { LandingHumanHandoff } from '@/components/landing/human-handoff';
 import { LandingHowItWorks } from '@/components/landing/how-it-works';
-import { LandingFlowDiagram } from '@/components/landing/flow-diagram';
-import { LandingUseCases } from '@/components/landing/use-cases';
 import { LandingPricing } from '@/components/landing/pricing';
 import { LandingCta } from '@/components/landing/cta';
 import { LandingFooter } from '@/components/landing/footer';
 
 export default function HomePage() {
   return (
-    <div className="min-h-full bg-background font-sans text-foreground transition-colors">
+    <div className="min-h-full bg-zinc-950 font-sans text-zinc-100 antialiased">
       <LandingHeader />
       <main>
         <LandingHero />
-        <LandingOverview />
         <LandingFeatures />
-        <LandingFlowDiagram />
+        <LandingHumanHandoff />
         <LandingHowItWorks />
-        <LandingUseCases />
         <LandingPricing />
         <LandingCta />
       </main>

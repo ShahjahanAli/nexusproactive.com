@@ -26,6 +26,7 @@ import {
   getConversationMessages,
   getOrCreateConversation,
   getSiteTenantId,
+  noteVisitorLanguage,
   saveMessage,
   setActiveAgent,
 } from './conversationService';
@@ -40,10 +41,32 @@ import {
   mintApprovalToken,
   ScopedJwtPayload,
 } from './scopedJwt';
-import { checkPlanLimit, incrementUsage } from './planLimits';
+import { checkPlanLimit, getTenantPlan, incrementUsage } from './planLimits';
 import { recordProductSignal } from './productSignals';
 import { isHumanHandled, requestEscalation } from './escalations';
+import { visitorMessage } from './visitorLocale';
 import { shouldTriggerGuardrail } from './chatGuardrails';
+import {
+  assignCxAgentToConversation,
+  buildCxAgentRolePrompt,
+  getCxAgentById,
+  pickAvailableCxAgent,
+} from './cxAgents';
+import {
+  CONSULT_SPECIALIST_TOOL,
+  consultSpecialistToolDefinition,
+  consultStatusLabel,
+  runSpecialistConsult,
+} from './cxConsults';
+import { listKnowledge } from './cxKnowledge';
+import {
+  RECORD_SALES_EVENT_TOOL,
+  REQUEST_RATING_TOOL,
+  recordSalesEvent,
+  recordSalesEventToolDefinition,
+  requestRatingToolDefinition,
+  shouldAskRating,
+} from './cxSalesRatings';
 import {
   formatMemoriesForPrompt,
   getVisitorMemories,
@@ -360,6 +383,7 @@ export async function* runOrchestrator(input: {
     }
 
     if (isHumanHandled(conversation.status)) {
+      await noteVisitorLanguage(conversation, input.message);
       await saveMessage(conversation.id, 'user', input.message);
 
       if (tenantId) {
@@ -375,16 +399,43 @@ export async function* runOrchestrator(input: {
         type: 'token',
         content:
           conversation.status === 'human'
-            ? 'Your message was sent to our team. They will reply shortly.'
-            : 'You are in the queue for a team member. Hang tight — someone will join soon.',
+            ? visitorMessage(conversation.detected_language, 'humanAck')
+            : visitorMessage(conversation.detected_language, 'queueAck'),
       });
       yield sse({ type: 'trace', steps: trace });
       yield sse({ type: 'done' });
       return;
     }
 
+    // CX Agent owns the visitor-facing chat when an active agent is available.
+    let cxAgent = conversation.cx_agent_id
+      ? await getCxAgentById(conversation.cx_agent_id)
+      : null;
+    if ((!cxAgent || cxAgent.status !== 'active') && tenantId) {
+      const picked = await pickAvailableCxAgent(tenantId);
+      if (picked) {
+        await assignCxAgentToConversation(conversation.id, picked.id);
+        conversation.cx_agent_id = picked.id;
+        cxAgent = picked;
+        yield sse({
+          type: 'handoff',
+          from: 'router',
+          to: `cx:${picked.slug}`,
+          label: `${picked.display_name} is assisting you…`,
+        });
+        pushTrace({
+          type: 'route',
+          agent: 'unknown',
+          detail: `cx_assigned=${picked.slug}`,
+        });
+      }
+    } else if (cxAgent && cxAgent.status !== 'active') {
+      cxAgent = null;
+    }
+
     const guardrail = await shouldTriggerGuardrail(input.siteId, conversation.id);
     if (guardrail.trigger) {
+      await noteVisitorLanguage(conversation, input.message);
       await saveMessage(conversation.id, 'user', input.message);
 
       if (tenantId) {
@@ -409,6 +460,7 @@ export async function* runOrchestrator(input: {
       return;
     }
 
+    await noteVisitorLanguage(conversation, input.message);
     await saveMessage(conversation.id, 'user', input.message);
 
     if (tenantId) {
@@ -488,25 +540,42 @@ export async function* runOrchestrator(input: {
 
       const target = specialistOrUnknown(route.agent);
       if (target !== 'unknown') {
-        if (activeAgent !== target && activeAgent !== 'router') {
+        // When a CX Agent owns the chat, only route to specialists it is allowed to call.
+        const allowed = cxAgent?.allowed_specialists;
+        if (allowed?.length && !allowed.includes(target as SpecialistAgent)) {
+          // Keep current specialist tools if already set; otherwise stay on router tools via unknown→all
+          // Prefer first allowed specialist as soft default for tool scope.
+          const fallback = allowed[0] as SpecialistAgent;
+          activeAgent = fallback;
+          await setActiveAgent(conversation.id, fallback);
+        } else if (activeAgent !== target && activeAgent !== 'router') {
           yield sse({
             type: 'handoff',
             from: activeAgent,
             to: target,
-            label: `Connecting you to ${handoffLabel(target)}…`,
+            label: cxAgent
+              ? `${cxAgent.display_name} is checking with ${handoffLabel(target)}…`
+              : `Connecting you to ${handoffLabel(target)}…`,
           });
           pushTrace({ type: 'handoff', agent: target });
+          activeAgent = target;
+          await setActiveAgent(conversation.id, target);
         } else if (activeAgent === 'router') {
           yield sse({
             type: 'handoff',
             from: 'router',
             to: target,
-            label: `Connecting you to ${handoffLabel(target)}…`,
+            label: cxAgent
+              ? `${cxAgent.display_name} is assisting you…`
+              : `Connecting you to ${handoffLabel(target)}…`,
           });
           pushTrace({ type: 'handoff', agent: target });
+          activeAgent = target;
+          await setActiveAgent(conversation.id, target);
+        } else {
+          activeAgent = target;
+          await setActiveAgent(conversation.id, target);
         }
-        activeAgent = target;
-        await setActiveAgent(conversation.id, target);
       } else {
         activeAgent = 'unknown';
         await setActiveAgent(conversation.id, 'unknown');
@@ -534,9 +603,42 @@ export async function* runOrchestrator(input: {
 
     const contactTurn =
       contactCollection && looksLikeContactSubmission(input.message);
-    const allTools = contactCollection
-      ? [...tools, contactCollectionToolDefinition()]
-      : tools;
+
+    let specialistConsultEnabled = false;
+    let ratingsEnabled = false;
+    if (cxAgent && tenantId) {
+      try {
+        const { limits } = await getTenantPlan(tenantId);
+        specialistConsultEnabled = limits.cx_specialist_consult_enabled !== false;
+        ratingsEnabled = limits.cx_ratings_enabled !== false;
+      } catch {
+        specialistConsultEnabled = true;
+        ratingsEnabled = true;
+      }
+    }
+
+    const consultTool =
+      cxAgent && specialistConsultEnabled
+        ? consultSpecialistToolDefinition(
+            (cxAgent.allowed_specialists ?? []) as Array<
+              'billing' | 'technical' | 'sales' | 'account'
+            >,
+          )
+        : null;
+
+    const salesTool = cxAgent ? recordSalesEventToolDefinition() : null;
+    const ratingTool =
+      cxAgent && ratingsEnabled ? requestRatingToolDefinition() : null;
+
+    let ratingRequested = false;
+
+    const allTools = [
+      ...tools,
+      ...(contactCollection ? [contactCollectionToolDefinition()] : []),
+      ...(consultTool ? [consultTool] : []),
+      ...(salesTool ? [salesTool] : []),
+      ...(ratingTool ? [ratingTool] : []),
+    ];
 
     if (toolActions.length === 0) {
       const noToolsMsg =
@@ -607,6 +709,18 @@ export async function* runOrchestrator(input: {
           {
             compactTools: scopedActions.length > COMPACT_TOOL_CATALOG_THRESHOLD,
             contactCollection,
+            cxRolePrompt: cxAgent
+              ? buildCxAgentRolePrompt(
+                  cxAgent,
+                  tenantId
+                    ? await listKnowledge({
+                        tenantId,
+                        cxAgentId: cxAgent.id,
+                        includeShared: true,
+                      })
+                    : [],
+                )
+              : null,
           },
         ),
       },
@@ -700,6 +814,9 @@ export async function* runOrchestrator(input: {
           ...actionMap.keys(),
           ...allActions.map((a) => a.operation_id),
           ...(contactCollection ? [SAVE_VISITOR_CONTACT_TOOL] : []),
+          ...(consultTool ? [CONSULT_SPECIALIST_TOOL] : []),
+          ...(salesTool ? [RECORD_SALES_EVENT_TOOL] : []),
+          ...(ratingTool ? [REQUEST_RATING_TOOL] : []),
         ]),
       ];
       let toolCalls = completion.tool_calls;
@@ -725,6 +842,20 @@ export async function* runOrchestrator(input: {
           const opId = toolCall.function.name;
           if (opId === SAVE_VISITOR_CONTACT_TOOL) {
             yield statusEvent('saving', 'Saving your contact details…');
+          } else if (opId === CONSULT_SPECIALIST_TOOL) {
+            let specialistArg = 'specialist';
+            try {
+              const parsed = JSON.parse(toolCall.function.arguments || '{}') as {
+                specialist?: string;
+              };
+              if (parsed.specialist) specialistArg = parsed.specialist;
+            } catch {
+              /* ignore */
+            }
+            yield statusEvent(
+              'thinking',
+              consultStatusLabel(cxAgent?.display_name ?? 'Assistant', specialistArg),
+            );
           } else {
             yield statusEvent('fetching', `Looking up ${opId.replace(/_/g, ' ')}…`);
           }
@@ -806,6 +937,126 @@ export async function* runOrchestrator(input: {
               type: 'tool_result',
               agent: activeAgent,
               detail: `${opId}: ${contactResult.ok ? 'saved' : 'failed'}`,
+            });
+            continue;
+          }
+
+          if (opId === CONSULT_SPECIALIST_TOOL) {
+            if (!cxAgent || !tenantId) {
+              llmMessages.push({
+                role: 'tool',
+                tool_call_id: toolCall.id,
+                name: opId,
+                content: JSON.stringify({
+                  ok: false,
+                  error: 'No CX Agent assigned for specialist consult',
+                }),
+              });
+              continue;
+            }
+
+            const transcriptSnippet = history
+              .slice(-8)
+              .map((m) => `${m.role}: ${(m.content ?? '').slice(0, 400)}`)
+              .join('\n');
+
+            const consult = await runSpecialistConsult({
+              tenantId,
+              conversationId: conversation.id,
+              fromCxAgentId: cxAgent.id,
+              specialist: String(args.specialist ?? ''),
+              question: String(args.question ?? input.message),
+              context: typeof args.context === 'string' ? args.context : undefined,
+              allowedSpecialists: cxAgent.allowed_specialists ?? [],
+              site,
+              visitorId,
+              transcriptSnippet,
+              signal: input.signal,
+            });
+            trackTokens(consult.tokensUsed);
+
+            llmMessages.push({
+              role: 'tool',
+              tool_call_id: toolCall.id,
+              name: opId,
+              content: JSON.stringify({
+                ok: consult.ok,
+                specialist: consult.specialist,
+                consultId: consult.consultId,
+                answer: consult.answer,
+                error: consult.error,
+                guidance:
+                  'Use this specialist brief to answer the visitor in your CX Agent voice. Do not mention the consult tool or internal specialists by system name unless helpful.',
+              }),
+            });
+            pushTrace({
+              type: 'tool_result',
+              agent: activeAgent,
+              detail: `consult_specialist:${consult.specialist}:${consult.ok ? 'ok' : 'fail'}`,
+            });
+            // Allow the CX agent to compose after consult without forcing more API tools.
+            fetchedOps.add(CONSULT_SPECIALIST_TOOL);
+            continue;
+          }
+
+          if (opId === RECORD_SALES_EVENT_TOOL) {
+            if (!cxAgent || !tenantId) {
+              llmMessages.push({
+                role: 'tool',
+                tool_call_id: toolCall.id,
+                name: opId,
+                content: JSON.stringify({ ok: false, error: 'No CX Agent for sales event' }),
+              });
+              continue;
+            }
+            try {
+              const event = await recordSalesEvent({
+                tenantId,
+                conversationId: conversation.id,
+                cxAgentId: cxAgent.id,
+                eventType: String(args.event_type ?? 'sales_signal'),
+                detail: typeof args.detail === 'string' ? args.detail : undefined,
+              });
+              llmMessages.push({
+                role: 'tool',
+                tool_call_id: toolCall.id,
+                name: opId,
+                content: JSON.stringify({ ok: true, eventId: event.id, eventType: event.event_type }),
+              });
+              pushTrace({
+                type: 'tool_result',
+                agent: activeAgent,
+                detail: `sales_event:${event.event_type}`,
+              });
+            } catch (err) {
+              llmMessages.push({
+                role: 'tool',
+                tool_call_id: toolCall.id,
+                name: opId,
+                content: JSON.stringify({
+                  ok: false,
+                  error: err instanceof Error ? err.message : 'Failed',
+                }),
+              });
+            }
+            continue;
+          }
+
+          if (opId === REQUEST_RATING_TOOL) {
+            ratingRequested = true;
+            llmMessages.push({
+              role: 'tool',
+              tool_call_id: toolCall.id,
+              name: opId,
+              content: JSON.stringify({
+                ok: true,
+                note: 'Rating prompt will be shown to the visitor after your reply. Thank them briefly; do not invent a score.',
+              }),
+            });
+            pushTrace({
+              type: 'tool_result',
+              agent: activeAgent,
+              detail: 'request_rating',
             });
             continue;
           }
@@ -1089,6 +1340,37 @@ export async function* runOrchestrator(input: {
       yield sse({ type: 'provenance', sources: provenance });
     }
     yield sse({ type: 'trace', steps: trace });
+
+    if (cxAgent && tenantId) {
+      try {
+        const assistantCount = (
+          await getConversationMessages(conversation.id)
+        ).filter((m) => m.role === 'assistant').length;
+        const ask = await shouldAskRating({
+          tenantId,
+          conversationId: conversation.id,
+          cxAgentId: cxAgent.id,
+          policy: cxAgent.rating_policy,
+          assistantMessageCount: assistantCount,
+          agentRequested: ratingRequested,
+        });
+        if (ask) {
+          const allowComment =
+            (cxAgent.rating_policy as { allow_comment?: boolean })?.allow_comment !== false;
+          yield sse({
+            type: 'ask_rating',
+            cxAgentId: cxAgent.id,
+            conversationId: conversation.id,
+            displayName: cxAgent.display_name,
+            scale: 5,
+            allowComment,
+          });
+        }
+      } catch {
+        // non-fatal
+      }
+    }
+
     yield sse({ type: 'done' });
     return;
   } catch (err) {

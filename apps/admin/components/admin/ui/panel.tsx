@@ -11,10 +11,10 @@ export function Panel({
 }) {
   return (
     <div
-      className={`relative overflow-hidden rounded-lg border bg-zinc-950/60 backdrop-blur-sm ${
+      className={`relative overflow-hidden rounded-lg border bg-zinc-950/60 shadow-sm backdrop-blur-sm ${
         accent
-          ? 'border-amber-500/20 shadow-[inset_0_1px_0_0_rgba(251,191,36,0.08)]'
-          : 'border-zinc-800/80'
+          ? 'border-amber-500/30 shadow-[inset_0_1px_0_0_rgba(251,191,36,0.08)]'
+          : 'border-zinc-800'
       } ${className}`}
     >
       {accent && (
@@ -37,10 +37,10 @@ export function PanelHeader({
   code?: string;
 }) {
   return (
-    <div className="flex flex-col gap-3 border-b border-zinc-800/80 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5 sm:py-4">
+    <div className="flex flex-col gap-3 border-b border-zinc-800 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5 sm:py-4">
       <div className="min-w-0">
         {code && (
-          <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-amber-500/70">
+          <p className="font-mono text-[10px] font-semibold uppercase tracking-[0.2em] text-amber-500/80">
             {code}
           </p>
         )}
@@ -48,7 +48,7 @@ export function PanelHeader({
           {title}
         </h2>
         {subtitle && (
-          <p className="mt-0.5 text-xs text-zinc-500 sm:text-sm">{subtitle}</p>
+          <p className="mt-0.5 text-xs text-zinc-400 sm:text-sm">{subtitle}</p>
         )}
       </div>
       {action && <div className="shrink-0">{action}</div>}

@@ -23,6 +23,7 @@ import escalationsRoutes from './routes/escalations';
 import proactiveRoutes from './routes/proactive';
 import widgetRoutes from './routes/widget';
 import platformRoutes from './routes/platform';
+import cxAgentsRoutes from './routes/cxAgents';
 import devMockRoutes from './routes/devMock';
 
 export function createApp() {
@@ -98,6 +99,7 @@ export function createApp() {
   app.use('/auth', authRoutes);
   app.use('/platform', platformRoutes);
   app.use('/tenant', tenantRoutes);
+  app.use('/tenant/cx-agents', cxAgentsRoutes);
   app.use('/sites', sitesRoutes);
   app.use('/conversations', conversationsRoutes);
   app.use('/signals', signalsRoutes);

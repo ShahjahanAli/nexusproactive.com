@@ -64,7 +64,7 @@ export default async function TenantsPage({
           <div className="overflow-x-auto">
             <table className="w-full min-w-[720px] text-left text-sm">
               <thead>
-                <tr className="border-b border-zinc-800/80 font-mono text-[10px] uppercase tracking-wider text-zinc-500">
+                <tr className="border-b border-zinc-800 font-mono text-[10px] font-semibold uppercase tracking-wider text-zinc-400">
                   <th className="px-4 py-3 sm:px-5">Company</th>
                   <th className="px-4 py-3">Plan</th>
                   <th className="px-4 py-3">Status</th>

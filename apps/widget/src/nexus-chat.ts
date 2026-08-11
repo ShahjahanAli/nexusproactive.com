@@ -1,4 +1,9 @@
 import { renderMarkdown, streamingPlainText } from './formatMessage';
+import {
+  guessLangFromText,
+  localizeSystemMessage,
+  widgetT,
+} from './visitorLocale';
 
 /** Resolve at call time so host pages can set window.NEXUS_API_URL before/after script load. */
 function apiUrl(): string {
@@ -17,6 +22,17 @@ interface ChatMessage {
   content: string;
   createdAt?: string;
   meta?: Record<string, unknown>;
+}
+
+interface ServerHistory {
+  status: string;
+  detectedLanguage?: string | null;
+  messages: Array<{
+    role: string;
+    content: string;
+    createdAt?: string;
+    meta?: Record<string, unknown>;
+  }>;
 }
 
 interface TraceStep {
@@ -50,8 +66,13 @@ export class NexusChatElement extends HTMLElement {
   private showTrace = false;
   private minimized = true;
   private conversationStatus = 'open';
+  /** Visitor UI language (ISO 639-1). Agent brief stays English separately. */
+  private visitorLang = 'en';
   private widgetTheme: WidgetTheme = {};
   private humanPollTimer?: ReturnType<typeof setInterval>;
+  /** Watches for a handoff started outside the widget (agent claim, AI escalation). */
+  private statusPollTimer?: ReturnType<typeof setInterval>;
+  private statusPollTick = 0;
   private idleTimer?: ReturnType<typeof setInterval>;
   private lastActivityAt = Date.now();
   private renderedMessageCount = 0;
@@ -74,8 +95,18 @@ export class NexusChatElement extends HTMLElement {
     this.siteId = this.getAttribute('site-id') ?? '';
     this.visitorId = this.resolveVisitorId();
     this.render();
+    this.applyStaticLocaleLabels();
     this.bindEvents();
     void this.bootstrap();
+  }
+
+  disconnectedCallback() {
+    this.stopHumanPolling();
+    this.stopStatusPolling();
+    if (this.idleTimer) {
+      clearInterval(this.idleTimer);
+      this.idleTimer = undefined;
+    }
   }
 
   private async bootstrap() {
@@ -134,12 +165,44 @@ export class NexusChatElement extends HTMLElement {
     return status === 'escalated' || status === 'human';
   }
 
+  private setVisitorLang(lang: string | null | undefined) {
+    if (!lang?.trim()) return;
+    const next = lang.trim().toLowerCase().slice(0, 2);
+    if (next === this.visitorLang) return;
+    this.visitorLang = next;
+    this.applyStaticLocaleLabels();
+  }
+
+  private inferVisitorLangFromMessages() {
+    if (this.visitorLang !== 'en') return;
+    const sample = this.messages
+      .filter((m) => m.role === 'user')
+      .map((m) => m.content)
+      .join('\n');
+    const guessed = guessLangFromText(sample);
+    if (guessed) this.setVisitorLang(guessed);
+  }
+
+  private applyStaticLocaleLabels() {
+    const sendBtn = this.shadow.querySelector('.composer button[type="submit"]') as HTMLButtonElement | null;
+    if (sendBtn) sendBtn.textContent = widgetT(this.visitorLang, 'send');
+    const traceToggle = this.shadow.querySelector('[data-toggle]') as HTMLButtonElement | null;
+    if (traceToggle && !this.showTrace) {
+      traceToggle.textContent = widgetT(this.visitorLang, 'traceToggle');
+    }
+  }
+
+  private displaySystemText(content: string, meta?: Record<string, unknown> | null): string {
+    return localizeSystemMessage(this.visitorLang, content, meta);
+  }
+
   /** Sync UI + lock state when conversation status changes (queue / human / AI). */
   private applyConversationMode(status: string) {
     const prev = this.conversationStatus;
     this.conversationStatus = status;
     const human = this.isHumanMode(status);
     const resumedAi = this.isHumanMode(prev) && !human;
+    const t = (key: Parameters<typeof widgetT>[1]) => widgetT(this.visitorLang, key);
 
     this.aiLocked = human;
 
@@ -157,13 +220,11 @@ export class NexusChatElement extends HTMLElement {
       if (status === 'escalated') {
         banner.hidden = false;
         banner.dataset.mode = 'queue';
-        banner.innerHTML =
-          '<strong>Waiting for a team member</strong><span>You are in the queue. Messages still go to our team.</span>';
+        banner.innerHTML = `<strong>${t('waitingBannerTitle')}</strong><span>${t('waitingBannerBody')}</span>`;
       } else if (status === 'human') {
         banner.hidden = false;
         banner.dataset.mode = 'human';
-        banner.innerHTML =
-          '<strong>Connected to a human</strong><span>A team member is in this chat with you.</span>';
+        banner.innerHTML = `<strong>${t('humanBannerTitle')}</strong><span>${t('humanBannerBody')}</span>`;
       } else {
         banner.hidden = true;
         banner.dataset.mode = 'ai';
@@ -173,12 +234,12 @@ export class NexusChatElement extends HTMLElement {
 
     if (subtitle) {
       if (status === 'escalated') {
-        subtitle.textContent = '● Waiting for human';
+        subtitle.textContent = t('statusWaiting');
       } else if (status === 'human') {
-        subtitle.textContent = '● Human agent';
+        subtitle.textContent = t('statusHuman');
       } else {
         const themeSub = this.widgetTheme.subtitle?.trim();
-        subtitle.textContent = themeSub || '● Online';
+        subtitle.textContent = themeSub || t('statusOnline');
       }
     }
 
@@ -189,46 +250,44 @@ export class NexusChatElement extends HTMLElement {
       } else if (status === 'escalated') {
         escalateBtn.style.display = '';
         escalateBtn.disabled = true;
-        escalateBtn.textContent = 'In queue';
-        escalateBtn.title = 'Waiting for a team member';
+        escalateBtn.textContent = t('btnInQueue');
+        escalateBtn.title = t('titleWaiting');
       } else if (status === 'human') {
         escalateBtn.style.display = '';
         escalateBtn.disabled = true;
-        escalateBtn.textContent = 'With human';
-        escalateBtn.title = 'A team member is handling this chat';
+        escalateBtn.textContent = t('btnWithHuman');
+        escalateBtn.title = t('titleWithHuman');
       } else {
         escalateBtn.style.display = '';
         escalateBtn.disabled = false;
-        escalateBtn.textContent = 'Human';
-        escalateBtn.title = 'Talk to a human';
+        escalateBtn.textContent = t('btnHuman');
+        escalateBtn.title = t('titleTalkHuman');
       }
     }
 
     if (newChatBtn) {
       newChatBtn.disabled = human || this.sending;
-      newChatBtn.title = human
-        ? 'Finish with the team member before starting a new chat'
-        : 'Start a fresh AI conversation';
+      newChatBtn.title = human ? t('newChatLocked') : t('newChatFresh');
     }
+
+    this.applyStaticLocaleLabels();
 
     if (human) {
       this.setComposerEnabled(
         true,
-        status === 'human'
-          ? 'Message the team member…'
-          : 'Message while you wait in queue…',
+        status === 'human' ? t('placeholderHuman') : t('placeholderQueue'),
       );
+      this.stopStatusPolling();
       this.startHumanPolling();
     } else {
       this.setComposerEnabled(!this.sending);
       if (this.isHumanMode(prev)) {
         this.stopHumanPolling();
       }
+      this.startStatusPolling();
       // Human → AI: drop sticky conversation so the next send cannot reuse a poisoned handoff thread.
       if (resumedAi) {
-        this.beginFreshAiThread(
-          'You are back with the AI assistant. Continuing in a fresh chat thread — send your message whenever you are ready.',
-        );
+        this.beginFreshAiThread(t('freshAiThread'));
       }
     }
   }
@@ -240,6 +299,7 @@ export class NexusChatElement extends HTMLElement {
     if (!minimized) {
       const composer = this.composerEl();
       composer?.focus();
+      void this.pollConversationStatus();
     }
   }
 
@@ -330,7 +390,7 @@ export class NexusChatElement extends HTMLElement {
         escalateBtn.style.display = '';
         escalateBtn.removeAttribute('disabled');
         (escalateBtn as HTMLButtonElement).disabled = false;
-        escalateBtn.textContent = 'Human';
+        escalateBtn.textContent = widgetT(this.visitorLang, 'btnHuman');
       }
     }
   }
@@ -391,6 +451,52 @@ export class NexusChatElement extends HTMLElement {
     }
   }
 
+  /**
+   * While the visitor is still with the AI, a handoff can be started elsewhere:
+   * an agent claims the thread from the dashboard, or a guardrail escalates it.
+   * Poll the conversation so the widget switches to human mode on its own.
+   */
+  private startStatusPolling() {
+    if (this.statusPollTimer) return;
+    if (!this.siteId || !this.conversationId || this.isHumanMode()) return;
+    this.statusPollTick = 0;
+    this.statusPollTimer = setInterval(() => {
+      this.statusPollTick += 1;
+      // Every 5s with the panel open, every 15s while minimized.
+      if (this.minimized && this.statusPollTick % 3 !== 0) return;
+      void this.pollConversationStatus();
+    }, 5000);
+  }
+
+  private stopStatusPolling() {
+    if (this.statusPollTimer) {
+      clearInterval(this.statusPollTimer);
+      this.statusPollTimer = undefined;
+    }
+  }
+
+  private async pollConversationStatus() {
+    if (!this.siteId || !this.conversationId || this.isHumanMode()) {
+      this.stopStatusPolling();
+      return;
+    }
+    // Never mutate history mid-turn; the SSE stream owns the transcript then.
+    if (this.sending) return;
+
+    try {
+      const data = await this.fetchServerHistory();
+      if (!data) return;
+
+      if (data.detectedLanguage) this.setVisitorLang(data.detectedLanguage);
+      if (!this.isHumanMode(data.status)) return;
+
+      this.renderUnseenServerMessages(data.messages);
+      this.applyConversationMode(data.status);
+    } catch {
+      // ignore poll errors
+    }
+  }
+
   private abortInFlightChat() {
     if (this.chatAbort) {
       this.chatAbort.abort();
@@ -405,6 +511,7 @@ export class NexusChatElement extends HTMLElement {
   private beginFreshAiThread(notice?: string, clearUi = false) {
     this.abortInFlightChat();
     this.stopHumanPolling();
+    this.stopStatusPolling();
     this.consecutiveFailures = 0;
 
     const oldId = this.conversationId;
@@ -446,19 +553,19 @@ export class NexusChatElement extends HTMLElement {
     }
     const subtitle = this.shadow.querySelector('[data-subtitle]') as HTMLElement | null;
     if (subtitle) {
-      subtitle.textContent = this.widgetTheme.subtitle?.trim() || '● Online';
+      subtitle.textContent = this.widgetTheme.subtitle?.trim() || widgetT(this.visitorLang, 'statusOnline');
     }
     const escalateBtn = this.shadow.querySelector('[data-escalate]') as HTMLButtonElement | null;
     if (escalateBtn && this.widgetTheme.escalationEnabled !== false) {
       escalateBtn.style.display = '';
       escalateBtn.disabled = false;
-      escalateBtn.textContent = 'Human';
-      escalateBtn.title = 'Talk to a human';
+      escalateBtn.textContent = widgetT(this.visitorLang, 'btnHuman');
+      escalateBtn.title = widgetT(this.visitorLang, 'titleTalkHuman');
     }
     const newChatBtn = this.shadow.querySelector('[data-new-chat]') as HTMLButtonElement | null;
     if (newChatBtn) {
       newChatBtn.disabled = this.sending;
-      newChatBtn.title = 'Start a fresh AI conversation';
+      newChatBtn.title = widgetT(this.visitorLang, 'newChatFresh');
     }
     if (!this.sending) this.setComposerEnabled(true);
   }
@@ -470,19 +577,49 @@ export class NexusChatElement extends HTMLElement {
     this.composerEl()?.focus();
   }
 
+  private async fetchServerHistory(): Promise<ServerHistory | null> {
+    if (!this.siteId || !this.conversationId || !this.visitorId) return null;
+    const params = new URLSearchParams({
+      siteId: this.siteId,
+      visitorId: this.visitorId,
+      conversationId: this.conversationId,
+    });
+    const res = await fetch(`${apiUrl()}/v1/chat/history?${params}`);
+    if (!res.ok) return null;
+    return (await res.json()) as ServerHistory;
+  }
+
+  /**
+   * Render server messages the visitor has not seen yet and move the poll cursor to
+   * the end. Content matching keeps AI replies that arrived over SSE from repeating,
+   * while still surfacing notices saved server-side (e.g. "an agent joined").
+   */
+  private renderUnseenServerMessages(messages: ServerHistory['messages']) {
+    for (const m of messages) {
+      if (m.role === 'user') continue;
+      const body = (m.content ?? '').trim();
+      const alreadyShown = this.messages.some(
+        (existing) => existing.role === m.role && (existing.content ?? '').trim() === body,
+      );
+      if (alreadyShown) continue;
+      this.messages.push({
+        role: m.role as ChatMessage['role'],
+        content: m.content,
+        createdAt: m.createdAt,
+        meta: m.meta,
+      });
+      this.renderStoredMessage(m.role, m.content, m.meta, m.createdAt);
+    }
+    this.renderedMessageCount = messages.length;
+    this.persistMessagesCache();
+  }
+
   /** Align poll cursor with server history to avoid duplicate bubbles after AI SSE. */
   private async syncRenderedCountFromServer() {
-    if (!this.siteId || !this.conversationId || !this.visitorId) return;
     try {
-      const params = new URLSearchParams({
-        siteId: this.siteId,
-        visitorId: this.visitorId,
-        conversationId: this.conversationId,
-      });
-      const res = await fetch(`${apiUrl()}/v1/chat/history?${params}`);
-      if (!res.ok) return;
-      const data = (await res.json()) as { messages: unknown[] };
-      this.renderedMessageCount = data.messages.length;
+      const data = await this.fetchServerHistory();
+      if (!data) return;
+      this.renderUnseenServerMessages(data.messages);
     } catch {
       // ignore
     }
@@ -549,17 +686,11 @@ export class NexusChatElement extends HTMLElement {
     }
 
     try {
-      const params = new URLSearchParams({
-        siteId: this.siteId,
-        visitorId: this.visitorId,
-        conversationId: this.conversationId,
-      });
-      const res = await fetch(`${apiUrl()}/v1/chat/history?${params}`);
-      if (!res.ok) return;
-      const data = (await res.json()) as {
-        status: string;
-        messages: Array<{ role: string; content: string; createdAt?: string }>;
-      };
+      const data = await this.fetchServerHistory();
+      if (!data) return;
+
+      if (data.detectedLanguage) this.setVisitorLang(data.detectedLanguage);
+      else this.inferVisitorLangFromMessages();
 
       const previousStatus = this.conversationStatus;
       if (data.status !== previousStatus) {
@@ -580,8 +711,9 @@ export class NexusChatElement extends HTMLElement {
             role: m.role as ChatMessage['role'],
             content: m.content,
             createdAt: m.createdAt,
+            meta: m.meta,
           });
-          this.renderStoredMessage(m.role, m.content, undefined, m.createdAt);
+          this.renderStoredMessage(m.role, m.content, m.meta, m.createdAt);
         }
         this.renderedMessageCount = data.messages.length;
         this.persistMessagesCache();
@@ -593,10 +725,11 @@ export class NexusChatElement extends HTMLElement {
 
   private async escalateToHuman() {
     if (!this.siteId || !this.conversationId) {
-      this.addBubble('Send a message first, then we can connect you with our team.', 'system');
+      this.addBubble(widgetT(this.visitorLang, 'escalateNeedMessage'), 'system');
       return;
     }
     if (this.isHumanMode()) return;
+    this.inferVisitorLangFromMessages();
     try {
       const res = await fetch(`${apiUrl()}/v1/chat/escalate`, {
         method: 'POST',
@@ -608,11 +741,15 @@ export class NexusChatElement extends HTMLElement {
         }),
       });
       if (res.ok) {
+        const data = (await res.json().catch(() => ({}))) as {
+          detectedLanguage?: string | null;
+        };
+        if (data.detectedLanguage) this.setVisitorLang(data.detectedLanguage);
         this.applyConversationMode('escalated');
         await this.pollHumanReplies();
       }
     } catch {
-      this.addBubble('Could not reach support right now. Please try again.', 'system');
+      this.addBubble(widgetT(this.visitorLang, 'escalateFailed'), 'system');
     }
   }
 
@@ -654,6 +791,7 @@ export class NexusChatElement extends HTMLElement {
   private clearSessionForSite() {
     this.abortInFlightChat();
     this.stopHumanPolling();
+    this.stopStatusPolling();
     this.sending = false;
     this.consecutiveFailures = 0;
     const oldId = this.conversationId;
@@ -696,6 +834,7 @@ export class NexusChatElement extends HTMLElement {
       if (res.ok) {
         const data = (await res.json()) as {
           status: string;
+          detectedLanguage?: string | null;
           messages: Array<{
             role: string;
             content: string;
@@ -703,6 +842,7 @@ export class NexusChatElement extends HTMLElement {
             meta?: Record<string, unknown>;
           }>;
         };
+        if (data.detectedLanguage) this.setVisitorLang(data.detectedLanguage);
         this.conversationStatus = data.status;
         for (const m of data.messages) {
           this.messages.push({
@@ -711,6 +851,9 @@ export class NexusChatElement extends HTMLElement {
             createdAt: m.createdAt,
             meta: m.meta,
           });
+        }
+        this.inferVisitorLangFromMessages();
+        for (const m of data.messages) {
           this.renderStoredMessage(m.role, m.content, m.meta, m.createdAt);
         }
         this.renderedMessageCount = data.messages.length;
@@ -719,7 +862,10 @@ export class NexusChatElement extends HTMLElement {
         // After human handoff + AI resume, never keep sending into that sticky thread —
         // even across page reloads.
         const resumedOnServer = data.messages.some(
-          (m) => m.role === 'system' && /back with the AI assistant/i.test(m.content),
+          (m) =>
+            m.role === 'system' &&
+            (m.meta?.kind === 'ai_resume' ||
+              /back with the AI assistant|de nouveau avec l/i.test(m.content)),
         );
         if (data.status === 'open' && resumedOnServer) {
           const oldId = this.conversationId;
@@ -733,8 +879,7 @@ export class NexusChatElement extends HTMLElement {
           if (this.siteId) localStorage.removeItem(this.conversationKey());
           this.conversationId = undefined;
           this.consecutiveFailures = 0;
-          const notice =
-            'You are back with the AI assistant. Continuing in a fresh chat thread — send your message whenever you are ready.';
+          const notice = widgetT(this.visitorLang, 'freshAiThread');
           const at = new Date().toISOString();
           this.addBubble(this.escape(notice), 'system', at);
           this.messages.push({ role: 'system', content: notice, createdAt: at });
@@ -757,8 +902,9 @@ export class NexusChatElement extends HTMLElement {
     if (!raw) return;
     try {
       const cached = JSON.parse(raw) as ChatMessage[];
+      this.messages = [...cached];
+      this.inferVisitorLangFromMessages();
       for (const m of cached) {
-        this.messages.push(m);
         this.renderStoredMessage(m.role, m.content, m.meta, m.createdAt);
       }
       this.renderedMessageCount = cached.length;
@@ -781,7 +927,7 @@ export class NexusChatElement extends HTMLElement {
       const sources = meta?.provenance as Array<Record<string, unknown>> | undefined;
       if (sources?.length) this.attachProvenance(el, sources);
     } else if (role === 'system') {
-      this.addBubble(this.escape(content), 'system', createdAt);
+      this.addBubble(this.escape(this.displaySystemText(content, meta)), 'system', createdAt);
     }
   }
 
@@ -1147,6 +1293,37 @@ export class NexusChatElement extends HTMLElement {
           30% { transform: translateY(-4px); opacity: 1; }
         }
         .typing-label { font-size: 12px; color: #a1a1aa; }
+        .rating-card {
+          align-self: stretch;
+          margin: 4px 0 8px;
+          padding: 12px;
+          border-radius: 12px;
+          border: 1px solid #3f3f46;
+          background: #18181b;
+        }
+        .rating-card p { margin: 0 0 8px; font-size: 13px; color: #e4e4e7; }
+        .rating-stars { display: flex; gap: 6px; margin-bottom: 8px; }
+        .rating-stars button {
+          width: 32px; height: 32px; border-radius: 8px;
+          border: 1px solid #3f3f46; background: #27272a; color: #fbbf24;
+          cursor: pointer; font-size: 14px;
+        }
+        .rating-stars button.active, .rating-stars button:hover {
+          border-color: #f59e0b; background: #422006;
+        }
+        .rating-card textarea {
+          width: 100%; box-sizing: border-box; margin-bottom: 8px;
+          border-radius: 8px; border: 1px solid #3f3f46; background: #09090b;
+          color: #fafafa; padding: 8px; font: inherit; font-size: 12px; resize: vertical;
+        }
+        .rating-actions { display: flex; gap: 8px; }
+        .rating-actions button {
+          border-radius: 8px; border: 1px solid #3f3f46; background: #27272a;
+          color: #e4e4e7; padding: 6px 10px; font-size: 12px; cursor: pointer;
+        }
+        .rating-actions button.primary {
+          background: #059669; border-color: #059669; color: #fff;
+        }
       </style>
       <div class="root minimized">
         <button type="button" class="launcher" data-launch aria-label="Open chat">
@@ -1319,6 +1496,7 @@ export class NexusChatElement extends HTMLElement {
     const sentAt = new Date().toISOString();
     this.messages.push({ role: 'user', content: text, createdAt: sentAt });
     this.addBubble(this.escape(text), 'user', sentAt);
+    this.inferVisitorLangFromMessages();
     this.persistMessagesCache();
     this.showTyping();
 
@@ -1414,6 +1592,8 @@ export class NexusChatElement extends HTMLElement {
           } else if (payload.type === 'guardrail') {
             this.hideTyping();
             this.applyGuardrailHandoff(payload);
+          } else if (payload.type === 'ask_rating') {
+            this.renderRatingPrompt(payload);
           } else if (payload.type === 'done') {
             if (assistantEl && assistantText) {
               this.setAssistantContent(assistantEl, assistantText, false);
@@ -1512,6 +1692,69 @@ export class NexusChatElement extends HTMLElement {
       }
       this.composerEl()?.focus();
     }
+  }
+
+  private renderRatingPrompt(payload: Record<string, unknown>) {
+    if (this.shadow.querySelector('[data-rating-card]')) return;
+    const allowComment = payload.allowComment !== false;
+    const displayName = String(payload.displayName ?? 'Assistant');
+    const el = document.createElement('div');
+    el.className = 'rating-card';
+    el.dataset.ratingCard = '1';
+    el.innerHTML = `<p>${this.escape(widgetT(this.visitorLang, 'ratingPrompt'))} <span style="color:#a1a1aa">(${this.escape(displayName)})</span></p>
+      <div class="rating-stars" data-stars></div>
+      ${allowComment ? `<textarea data-rating-comment rows="2" placeholder="${this.escape(widgetT(this.visitorLang, 'ratingCommentPlaceholder'))}"></textarea>` : ''}
+      <div class="rating-actions">
+        <button type="button" class="primary" data-rating-submit disabled>${this.escape(widgetT(this.visitorLang, 'ratingSubmit'))}</button>
+        <button type="button" data-rating-skip>${this.escape(widgetT(this.visitorLang, 'ratingSkip'))}</button>
+      </div>`;
+
+    let score = 0;
+    const stars = el.querySelector('[data-stars]')!;
+    for (let i = 1; i <= 5; i++) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.textContent = '★';
+      btn.setAttribute('aria-label', `${i}`);
+      btn.onclick = () => {
+        score = i;
+        stars.querySelectorAll('button').forEach((b, idx) => {
+          b.classList.toggle('active', idx < i);
+        });
+        (el.querySelector('[data-rating-submit]') as HTMLButtonElement).disabled = false;
+      };
+      stars.appendChild(btn);
+    }
+
+    el.querySelector('[data-rating-skip]')?.addEventListener('click', () => {
+      el.remove();
+    });
+
+    el.querySelector('[data-rating-submit]')?.addEventListener('click', async () => {
+      if (!score || !this.conversationId || !this.visitorId) return;
+      const commentEl = el.querySelector('[data-rating-comment]') as HTMLTextAreaElement | null;
+      const comment = commentEl?.value?.trim() || undefined;
+      try {
+        await fetch(`${apiUrl()}/v1/chat/rating`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            siteId: this.siteId,
+            visitorId: this.visitorId,
+            conversationId: this.conversationId,
+            score,
+            comment,
+          }),
+        });
+      } catch {
+        /* ignore */
+      }
+      el.innerHTML = `<p>${this.escape(widgetT(this.visitorLang, 'ratingThanks'))}</p>`;
+      setTimeout(() => el.remove(), 2500);
+    });
+
+    this.msgsEl().appendChild(el);
+    this.msgsEl().scrollTop = this.msgsEl().scrollHeight;
   }
 
   private renderApproval(payload: Record<string, unknown>) {

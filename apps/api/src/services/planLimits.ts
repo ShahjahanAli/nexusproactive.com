@@ -10,18 +10,32 @@ import { currentPeriodStart } from '../lib/timezone';
 
 interface TenantRow {
   plan: Plan;
-  plan_limits: PlanLimits;
+  plan_limits: PlanLimits | null;
+  catalog_limits: PlanLimits | null;
 }
 
+/**
+ * Resolve effective limits by layering, weakest first:
+ *   built-in defaults → platform_plans catalog (admin portal) → tenant overrides.
+ * Layering the catalog in means a new limit added to a plan reaches tenants whose
+ * stored overrides predate it, without requiring a sync.
+ */
 async function getTenantPlan(tenantId: string): Promise<{ plan: Plan; limits: PlanLimits }> {
   const row = await queryOne<TenantRow>(
-    'SELECT plan, plan_limits FROM tenants WHERE id = $1',
+    `SELECT t.plan, t.plan_limits, p.plan_limits AS catalog_limits
+     FROM tenants t
+     LEFT JOIN platform_plans p ON p.id = t.plan
+     WHERE t.id = $1`,
     [tenantId],
   );
   if (!row) {
     throw new Error('Tenant not found');
   }
-  const limits = row.plan_limits ?? DEFAULT_PLAN_LIMITS[row.plan];
+  const limits: PlanLimits = {
+    ...DEFAULT_PLAN_LIMITS[row.plan],
+    ...(row.catalog_limits ?? {}),
+    ...(row.plan_limits ?? {}),
+  };
   return { plan: row.plan, limits };
 }
 
@@ -49,6 +63,14 @@ async function getSiteCount(tenantId: string): Promise<number> {
   return row ? parseInt(row.count, 10) : 0;
 }
 
+async function getCxAgentCount(tenantId: string): Promise<number> {
+  const row = await queryOne<{ count: string }>(
+    'SELECT COUNT(*)::text AS count FROM cx_agents WHERE tenant_id = $1',
+    [tenantId],
+  );
+  return row ? parseInt(row.count, 10) : 0;
+}
+
 const CAPACITY_MESSAGE =
   'This business has reached its support capacity. Please try again later or contact the site owner.';
 
@@ -56,7 +78,8 @@ export async function checkPlanLimit(
   tenantId: string,
   metric: PlanLimitMetric,
 ): Promise<PlanLimitCheckResult> {
-  const { limits } = await getTenantPlan(tenantId);
+  const { limits, plan } = await getTenantPlan(tenantId);
+  const defaults = DEFAULT_PLAN_LIMITS[plan];
 
   if (metric === 'max_sites') {
     const current = await getSiteCount(tenantId);
@@ -67,6 +90,23 @@ export async function checkPlanLimit(
       current,
       limit,
       message: current >= limit ? CAPACITY_MESSAGE : undefined,
+    };
+  }
+
+  if (metric === 'max_cx_agents') {
+    const current = await getCxAgentCount(tenantId);
+    const limit = limits.max_cx_agents ?? defaults.max_cx_agents ?? 0;
+    const enabled = limits.cx_agents_enabled !== false;
+    return {
+      allowed: enabled && current < limit,
+      metric,
+      current,
+      limit,
+      message: !enabled
+        ? 'CX Agents are not enabled on your plan.'
+        : current >= limit
+          ? `Your plan allows ${limit} CX Agent(s). Upgrade or remove an existing agent.`
+          : undefined,
     };
   }
 

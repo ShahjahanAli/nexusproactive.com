@@ -51,7 +51,7 @@ export default function LoginPage() {
           backgroundSize: '32px 32px',
         }}
       />
-      <div className="relative w-full max-w-md rounded-lg border border-zinc-800/80 bg-zinc-950/90 p-6 shadow-2xl backdrop-blur sm:p-8">
+      <div className="relative w-full max-w-md rounded-lg border border-zinc-800 bg-zinc-950/90 p-6 shadow-2xl backdrop-blur sm:p-8">
         <div className="mb-8">
           <div className="mb-4 flex items-center gap-3">
             <span className="flex h-10 w-10 items-center justify-center rounded border border-amber-500/30 bg-amber-950/50 font-mono text-sm font-bold text-amber-400">

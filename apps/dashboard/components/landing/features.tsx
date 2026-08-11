@@ -1,89 +1,75 @@
-﻿const featureGroups = [
+﻿const features = [
   {
-    title: 'Understand every request',
+    index: '01',
+    title: 'Actions from your OpenAPI spec',
     description:
-      'The platform helps the assistant interpret what the visitor needs and use the right source of truth.',
-    points: [
-      'Intent-aware routing across support, sales, technical, and account scenarios',
-      'Typed OpenAPI sources such as products, services, FAQ, and customer information',
-      'Conversation context and specialist behaviors for clearer answers',
-    ],
+      'Point Nexus at your spec. Every endpoint becomes something the assistant can call — re-synced nightly, answered from live data.',
+    detail: 'GET /orders · GET /events · POST /registrations',
   },
   {
-    title: 'Connect to live business systems',
+    index: '02',
+    title: 'Risk tiers with real teeth',
     description:
-      'Use your existing backend instead of rebuilding your knowledge inside a chatbot tool.',
-    points: [
-      'OpenAPI ingestion discovers callable endpoints automatically',
-      'Live API lookups keep answers aligned with current business data',
-      'Clickable product or service links can be returned directly from your APIs',
-    ],
+      'Reads run instantly. Writes get an undo window. Refunds and cancellations stop and wait for a signed, one-time approval.',
+    detail: 'read_only · reversible_write · irreversible_write · financial',
   },
   {
-    title: 'Act safely when it matters',
+    index: '03',
+    title: 'Specialist routing',
     description:
-      'Nexus is designed for businesses that need control, not just automation for automation sake.',
-    points: [
-      'Risk-tiered actions separate safe reads from sensitive writes',
-      'Inline approvals protect financial or irreversible operations',
-      'Undo paths and action review improve operational safety',
-    ],
+      'Messages are classified by meaning — misspelled, informal, or in another language — and land with a billing, sales, technical, or account specialist.',
+    detail: 'router → billing · technical · sales · account',
   },
   {
-    title: 'Operate and improve over time',
+    index: '04',
+    title: 'Human handoff with context',
     description:
-      'Beyond chat, the platform gives teams visibility into what is happening and what to optimize next.',
-    points: [
-      'Dashboard views for deployments, actions, conversations, and analytics',
-      'Human escalation and queue handling for edge cases or sensitive moments',
-      'Signals and unresolved patterns that surface product or service gaps',
-    ],
+      'Visitors escalate in one click. Agents claim from a live inbox with the language detected and an English brief already written.',
+    detail: 'queue → claim → reply → return to AI',
+  },
+  {
+    index: '05',
+    title: 'Proactive triggers & memory',
+    description:
+      'Nexus remembers returning visitors, opens conversations on page or idle events, and captures leads mid-conversation — no forms.',
+    detail: 'page_view · idle · custom_event → lead.created',
+  },
+  {
+    index: '06',
+    title: 'Product signals',
+    description:
+      'When customers keep asking for something your API can\u2019t do, Nexus clusters the demand and drafts the endpoint that would fix it.',
+    detail: 'unresolved intents → suggested OpenAPI stub',
   },
 ];
 
 export function LandingFeatures() {
   return (
-    <section id="features" className="border-t border-white/5 px-4 py-16 sm:px-6 sm:py-24 lg:px-8">
-      <div className="mx-auto max-w-7xl">
-        <div className="mx-auto max-w-3xl text-center">
-          <p className="text-sm font-medium uppercase tracking-[0.2em] text-indigo-400">
-            Capabilities
-          </p>
-          <h2 className="mt-4 text-3xl font-bold tracking-tight text-slate-50 sm:text-4xl">
-            Built to make AI useful in real business workflows.
+    <section id="features" className="border-b border-zinc-800/60 bg-zinc-950 px-5 py-16 sm:px-8 sm:py-24">
+      <div className="mx-auto max-w-6xl">
+        <div className="max-w-lg">
+          <p className="font-mono text-xs text-emerald-400">what it does</p>
+          <h2 className="mt-3 text-2xl font-semibold tracking-tight text-zinc-50 sm:text-3xl">
+            The layer between your visitors and your backend.
           </h2>
-          <p className="mt-4 text-base leading-8 text-slate-400 sm:text-lg">
-            Instead of acting like a generic website chatbot, Nexus is designed to work as an operational layer
-            between your visitors, your APIs, and your support team.
-          </p>
         </div>
 
-        <div className="mt-12 grid gap-6 lg:grid-cols-2">
-          {featureGroups.map((group) => (
+        <div className="mt-12 grid gap-x-16 lg:grid-cols-2">
+          {features.map((feature) => (
             <div
-              key={group.title}
-              className="rounded-[28px] border border-white/5 bg-slate-900/50 p-6 sm:p-8"
+              key={feature.index}
+              className="border-t border-zinc-800/70 py-7"
             >
-              <div className="inline-flex rounded-2xl bg-indigo-500/10 p-3 text-indigo-300 ring-1 ring-indigo-500/20">
-                <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={1.5}
-                    d="M12 6v6l4 2m6-2a10 10 0 11-20 0 10 10 0 0120 0z"
-                  />
-                </svg>
+              <div className="flex gap-5">
+                <span className="pt-0.5 font-mono text-xs text-zinc-600">{feature.index}</span>
+                <div>
+                  <h3 className="text-[15px] font-medium text-zinc-100">{feature.title}</h3>
+                  <p className="mt-2 max-w-md text-sm leading-6 text-zinc-400">
+                    {feature.description}
+                  </p>
+                  <p className="mt-3 font-mono text-[11px] text-zinc-600">{feature.detail}</p>
+                </div>
               </div>
-              <h3 className="mt-5 text-2xl font-semibold text-slate-50">{group.title}</h3>
-              <p className="mt-3 text-sm leading-7 text-slate-400 sm:text-base">{group.description}</p>
-              <ul className="mt-6 space-y-3">
-                {group.points.map((point) => (
-                  <li key={point} className="flex gap-3 text-sm leading-7 text-slate-300 sm:text-base">
-                    <span className="mt-2 h-2 w-2 shrink-0 rounded-full bg-emerald-400" />
-                    <span>{point}</span>
-                  </li>
-                ))}
-              </ul>
             </div>
           ))}
         </div>

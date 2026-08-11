@@ -1,5 +1,5 @@
 import Stripe from 'stripe';
-import { DEFAULT_PLAN_LIMITS, Plan } from '@nexus/shared-types';
+import { DEFAULT_PLAN_LIMITS, Plan, PlanLimits } from '@nexus/shared-types';
 import { config } from '../config';
 import { query, queryOne } from '../db';
 
@@ -114,7 +114,13 @@ async function updateTenantPlan(
   plan: Plan,
   subscriptionId: string | null,
 ): Promise<void> {
-  const planLimits = DEFAULT_PLAN_LIMITS[plan];
+  // Prefer the admin-managed catalog so a plan change does not revert limits
+  // the platform admin customised for that plan.
+  const catalog = await queryOne<{ plan_limits: PlanLimits }>(
+    `SELECT plan_limits FROM platform_plans WHERE id = $1`,
+    [plan],
+  ).catch(() => null);
+  const planLimits = catalog?.plan_limits ?? DEFAULT_PLAN_LIMITS[plan];
   await query(
     `UPDATE tenants SET plan = $1, plan_limits = $2, stripe_subscription_id = $3 WHERE id = $4`,
     [plan, JSON.stringify(planLimits), subscriptionId, tenantId],

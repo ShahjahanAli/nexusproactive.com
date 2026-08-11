@@ -44,6 +44,7 @@ export interface SseEvent {
     | 'done'
     | 'error'
     | 'conversation'
-    | 'guardrail';
+    | 'guardrail'
+    | 'ask_rating';
   [key: string]: unknown;
 }

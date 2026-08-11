@@ -37,7 +37,7 @@ export default async function OverviewPage() {
             {(Object.keys(stats.by_plan) as Array<keyof typeof stats.by_plan>).map((plan) => (
               <div
                 key={plan}
-                className="rounded-lg border border-zinc-800/80 bg-zinc-900/40 px-4 py-3"
+                className="rounded-lg border border-zinc-800 bg-zinc-900/60 px-4 py-3"
               >
                 <div className="flex items-center justify-between">
                   <Badge variant="tactical" size="sm">

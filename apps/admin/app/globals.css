@@ -7,37 +7,92 @@ html[data-theme='dark'] {
   --foreground: #ededed;
   --surface: #09090b;
   --grid-line: rgba(251, 191, 36, 0.3);
+  --focus-ring: #f59e0b;
+
+  /* Default zinc-600 is too dim for the 10px mono labels used throughout. */
+  --color-zinc-600: #83838d;
 }
 
 html[data-theme='light'] {
   color-scheme: light;
-  --background: #f4f4f5;
+  --background: #edeef1;
   --foreground: #18181b;
   --surface: #ffffff;
-  --grid-line: rgba(217, 119, 6, 0.18);
+  --grid-line: rgba(180, 83, 9, 0.22);
+  --focus-ring: #b45309;
 
-  /* Invert zinc so existing dark-first classes render as light UI */
+  /* Invert zinc so existing dark-first classes render as light UI.
+     500/600 carry muted text and 700/800 carry borders, so both bands are
+     tuned for contrast rather than a straight mirror of the dark ramp. */
   --color-zinc-50: #09090b;
   --color-zinc-100: #18181b;
   --color-zinc-200: #27272a;
   --color-zinc-300: #3f3f46;
   --color-zinc-400: #52525b;
-  --color-zinc-500: #71717a;
-  --color-zinc-600: #a1a1aa;
-  --color-zinc-700: #d4d4d8;
-  --color-zinc-800: #e4e4e7;
-  --color-zinc-900: #f4f4f5;
+  --color-zinc-500: #616169;
+  --color-zinc-600: #7b7b85;
+  --color-zinc-700: #cbcbd2;
+  --color-zinc-800: #dcdce1;
+  --color-zinc-900: #f2f2f4;
   --color-zinc-950: #ffffff;
+
+  /* Accent scales are used as *text* on pale surfaces (text-amber-400 on
+     bg-amber-950). Darken 300-600 so they stay readable; the 950 tints below
+     remain the soft background they sit on. */
+  --color-amber-300: #92400e;
+  --color-amber-400: #92400e;
+  --color-amber-500: #b45309;
+  --color-amber-600: #d97706;
+
+  --color-emerald-300: #065f46;
+  --color-emerald-400: #047857;
+  --color-emerald-500: #059669;
+
+  --color-red-300: #991b1b;
+  --color-red-400: #b91c1c;
+  --color-red-500: #dc2626;
+
+  --color-cyan-300: #155e75;
+  --color-cyan-400: #0e7490;
+  --color-cyan-500: #0891b2;
 
   /* Soften near-black brand panels so accents stay readable on light */
   --color-emerald-950: #ecfdf5;
-  --color-amber-950: #fffbeb;
+  --color-amber-950: #fdf6e7;
   --color-red-950: #fef2f2;
   --color-cyan-950: #ecfeff;
 }
 
+/* Soft overlay surfaces that used white/black opacity in dark UI */
 html[data-theme='light'] .bg-black\/70 {
   background-color: rgb(24 24 27 / 0.45);
+}
+
+/* Translucent near-black panels become crisp white cards on light. */
+html[data-theme='light'] .bg-zinc-950\/60,
+html[data-theme='light'] .bg-zinc-950\/70,
+html[data-theme='light'] .bg-zinc-950\/80,
+html[data-theme='light'] .bg-zinc-950\/95 {
+  background-color: #ffffff;
+}
+
+/* Low-alpha accent text loses too much contrast once mixed with the surface. */
+html[data-theme='dark'] .text-amber-500\/70,
+html[data-theme='dark'] .text-amber-500\/80 {
+  color: #fbbf24;
+}
+
+html[data-theme='dark'] .text-emerald-500\/80 {
+  color: #34d399;
+}
+
+html[data-theme='light'] .text-amber-500\/70,
+html[data-theme='light'] .text-amber-500\/80 {
+  color: #b45309;
+}
+
+html[data-theme='light'] .text-emerald-500\/80 {
+  color: #047857;
 }
 
 @theme inline {
@@ -63,4 +118,15 @@ body {
   color: var(--foreground);
   font-family: var(--font-geist-sans), system-ui, sans-serif;
   transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* Checked state was rendering in the browser default blue against amber chrome. */
+input[type='checkbox'],
+input[type='radio'] {
+  accent-color: var(--focus-ring);
 }

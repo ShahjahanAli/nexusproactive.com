@@ -12,10 +12,10 @@ export function PageHeader({
   action?: ReactNode;
 }) {
   return (
-    <div className="flex flex-col gap-4 border-b border-zinc-800/80 pb-5 sm:flex-row sm:items-end sm:justify-between sm:pb-6">
+    <div className="flex flex-col gap-4 border-b border-zinc-800 pb-5 sm:flex-row sm:items-end sm:justify-between sm:pb-6">
       <div className="min-w-0">
         {code && (
-          <p className="font-mono text-[10px] uppercase tracking-[0.25em] text-amber-500/80">
+          <p className="font-mono text-[10px] font-semibold uppercase tracking-[0.25em] text-amber-500/80">
             // {code}
           </p>
         )}

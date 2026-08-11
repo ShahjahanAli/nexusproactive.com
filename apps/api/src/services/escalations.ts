@@ -2,6 +2,8 @@ import { query, queryOne } from '../db';
 import { saveMessage } from './conversationService';
 import { dispatchWebhook } from './webhooks';
 import { getSiteTenantId } from './conversationService';
+import { generateHandoffContext } from './handoffBrief';
+import { MSG_KIND, visitorMessage } from './visitorLocale';
 
 export interface EscalationRow {
   id: string;
@@ -13,6 +15,8 @@ export interface EscalationRow {
   escalated_at: string | null;
   assigned_to: string | null;
   assigned_email: string | null;
+  detected_language: string | null;
+  handoff_brief: string | null;
   message_count: number;
   last_message_at: string | null;
   last_message_preview: string | null;
@@ -24,7 +28,7 @@ export async function requestEscalation(
   visitorId: string,
   conversationId: string,
   reason?: string,
-): Promise<{ ok: boolean; message?: string }> {
+): Promise<{ ok: boolean; message?: string; detectedLanguage?: string | null }> {
   const conv = await queryOne<{ id: string; status: string }>(
     `SELECT id, status FROM conversations
      WHERE id = $1 AND site_id = $2 AND visitor_id = $3`,
@@ -33,20 +37,46 @@ export async function requestEscalation(
   if (!conv) return { ok: false, message: 'Conversation not found' };
 
   if (conv.status === 'escalated' || conv.status === 'human') {
-    return { ok: true, message: 'Already escalated' };
+    const existing = await queryOne<{ detected_language: string | null }>(
+      'SELECT detected_language FROM conversations WHERE id = $1',
+      [conversationId],
+    );
+    return {
+      ok: true,
+      message: 'Already escalated',
+      detectedLanguage: existing?.detected_language ?? null,
+    };
+  }
+
+  // Detect language + English agent brief before visitor-facing notices.
+  let detectedLanguage: string | null = null;
+  let handoffBrief: string | null = null;
+  try {
+    const handoff = await generateHandoffContext(conversationId, reason);
+    detectedLanguage = handoff.language;
+    handoffBrief = handoff.brief;
+  } catch (err) {
+    console.warn('[escalation] handoff brief failed:', err);
   }
 
   await queryOne(
     `UPDATE conversations
-     SET status = 'escalated', escalated_at = now(), escalation_reason = $1
-     WHERE id = $2`,
-    [reason ?? null, conversationId],
+     SET status = 'escalated',
+         escalated_at = now(),
+         escalation_reason = $1,
+         detected_language = COALESCE($2, detected_language),
+         handoff_brief = COALESCE($3, handoff_brief)
+     WHERE id = $4`,
+    [reason ?? null, detectedLanguage, handoffBrief, conversationId],
   );
 
   await saveMessage(
     conversationId,
     'system',
-    'A team member has been notified. Someone will join this chat shortly.',
+    visitorMessage(detectedLanguage, 'escalationNotified'),
+    undefined,
+    undefined,
+    { kind: MSG_KIND.escalationNotified },
   );
 
   const tenantId = await getSiteTenantId(siteId);
@@ -56,10 +86,12 @@ export async function requestEscalation(
       siteId,
       visitorId,
       reason: reason ?? null,
+      detectedLanguage,
+      handoffBrief,
     });
   }
 
-  return { ok: true };
+  return { ok: true, detectedLanguage };
 }
 
 export async function listEscalations(
@@ -131,6 +163,7 @@ export async function listEscalations(
     `SELECT c.id, c.site_id, s.name AS site_name, c.visitor_id, c.status,
             c.escalation_reason, c.escalated_at, c.assigned_to,
             tu.email AS assigned_email,
+            c.detected_language, c.handoff_brief,
             (SELECT COUNT(*)::int FROM messages m WHERE m.conversation_id = c.id) AS message_count,
             (SELECT MAX(m.created_at) FROM messages m WHERE m.conversation_id = c.id) AS last_message_at,
             (SELECT LEFT(m.content, 120) FROM messages m
@@ -161,8 +194,13 @@ export async function claimEscalation(
   conversationId: string,
   userId: string,
 ): Promise<boolean> {
-  const conv = await queryOne<{ id: string; assigned_to: string | null; status: string }>(
-    `SELECT c.id, c.assigned_to, c.status FROM conversations c
+  const conv = await queryOne<{
+    id: string;
+    assigned_to: string | null;
+    status: string;
+    detected_language: string | null;
+  }>(
+    `SELECT c.id, c.assigned_to, c.status, c.detected_language FROM conversations c
      JOIN sites s ON s.id = c.site_id
      WHERE c.id = $1 AND s.tenant_id = $2 AND c.status IN ('escalated', 'human', 'open')`,
     [conversationId, tenantId],
@@ -178,7 +216,14 @@ export async function claimEscalation(
   );
 
   if (switching) {
-    await saveMessage(conversationId, 'system', 'A team member has joined the chat.');
+    await saveMessage(
+      conversationId,
+      'system',
+      visitorMessage(conv.detected_language, 'agentJoined'),
+      undefined,
+      undefined,
+      { kind: MSG_KIND.agentJoined },
+    );
   }
 
   void dispatchWebhook(tenantId, 'escalation.claimed', { conversationId, userId });
@@ -222,8 +267,8 @@ export async function resolveEscalation(
   conversationId: string,
   resumeAi = true,
 ): Promise<boolean> {
-  const conv = await queryOne<{ id: string }>(
-    `SELECT c.id FROM conversations c
+  const conv = await queryOne<{ id: string; detected_language: string | null }>(
+    `SELECT c.id, c.detected_language FROM conversations c
      JOIN sites s ON s.id = c.site_id
      WHERE c.id = $1 AND s.tenant_id = $2`,
     [conversationId, tenantId],
@@ -242,8 +287,11 @@ export async function resolveEscalation(
     conversationId,
     'system',
     resumeAi
-      ? 'This chat is back with the AI assistant. How can I help?'
+      ? visitorMessage(conv.detected_language, 'aiResumed')
       : 'This conversation has been closed. Thank you!',
+    undefined,
+    undefined,
+    resumeAi ? { kind: MSG_KIND.aiResumed } : { kind: 'conversation_closed' },
   );
 
   void dispatchWebhook(tenantId, 'escalation.resolved', { conversationId, resumeAi });

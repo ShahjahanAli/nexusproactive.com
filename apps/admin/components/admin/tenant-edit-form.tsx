@@ -38,7 +38,14 @@ export function TenantEditForm({
         plan,
         status,
         notes: notes || null,
-        plan_limits: limits,
+        // Save the values on screen so unedited fields persist their shown fallback.
+        plan_limits: {
+          ...limits,
+          cx_agents_enabled: limits.cx_agents_enabled !== false,
+          max_cx_agents: limits.max_cx_agents ?? 0,
+          default_max_concurrent_chats: limits.default_max_concurrent_chats ?? 5,
+          max_concurrent_chats_cap: limits.max_concurrent_chats_cap ?? 10,
+        } satisfies PlanLimits,
       }),
     });
     const data = await res.json();
@@ -109,6 +116,60 @@ export function TenantEditForm({
             })
           }
         />
+      </div>
+
+      <div className="rounded-lg border border-zinc-800 p-3">
+        <p className="mb-2 font-mono text-[11px] uppercase tracking-wider text-emerald-500/80">
+          CX Agents (tenant override)
+        </p>
+        <label className="mb-3 flex items-center gap-2 font-mono text-xs text-zinc-400">
+          <input
+            type="checkbox"
+            checked={limits.cx_agents_enabled !== false}
+            onChange={(e) =>
+              setLimits({ ...limits, cx_agents_enabled: e.target.checked })
+            }
+          />
+          CX Agents enabled
+        </label>
+        <div className="grid gap-3 sm:grid-cols-3">
+          <Input
+            label="Max CX Agents"
+            type="number"
+            min={0}
+            value={limits.max_cx_agents ?? 0}
+            onChange={(e) =>
+              setLimits({
+                ...limits,
+                max_cx_agents: parseInt(e.target.value, 10) || 0,
+              })
+            }
+          />
+          <Input
+            label="Default concurrent"
+            type="number"
+            min={1}
+            value={limits.default_max_concurrent_chats ?? 5}
+            onChange={(e) =>
+              setLimits({
+                ...limits,
+                default_max_concurrent_chats: parseInt(e.target.value, 10) || 5,
+              })
+            }
+          />
+          <Input
+            label="Concurrent cap"
+            type="number"
+            min={1}
+            value={limits.max_concurrent_chats_cap ?? 10}
+            onChange={(e) =>
+              setLimits({
+                ...limits,
+                max_concurrent_chats_cap: parseInt(e.target.value, 10) || 10,
+              })
+            }
+          />
+        </div>
       </div>
 
       <Textarea

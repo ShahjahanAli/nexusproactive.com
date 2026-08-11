@@ -37,7 +37,7 @@ export default async function AuditPage() {
                         </span>
                       )}
                     </div>
-                    <p className="mt-1 font-mono text-[10px] text-zinc-600">
+                    <p className="mt-1 font-mono text-[10px] text-zinc-500">
                       {e.actor_email ?? 'system'} ·{' '}
                       {new Date(e.created_at).toLocaleString()}
                     </p>

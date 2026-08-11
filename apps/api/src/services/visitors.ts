@@ -8,6 +8,7 @@ export async function getWidgetConversationHistory(
 ): Promise<{
   conversationId: string;
   status: string;
+  detectedLanguage: string | null;
   messages: Array<{
     role: string;
     content: string;
@@ -15,8 +16,8 @@ export async function getWidgetConversationHistory(
     meta?: Record<string, unknown>;
   }>;
 } | null> {
-  const conv = await queryOne<{ id: string; status: string }>(
-    `SELECT c.id, c.status FROM conversations c
+  const conv = await queryOne<{ id: string; status: string; detected_language: string | null }>(
+    `SELECT c.id, c.status, c.detected_language FROM conversations c
      WHERE c.id = $1 AND c.site_id = $2 AND c.visitor_id = $3`,
     [conversationId, siteId, visitorId],
   );
@@ -32,7 +33,12 @@ export async function getWidgetConversationHistory(
       meta: (m.meta as Record<string, unknown> | null) ?? undefined,
     }));
 
-  return { conversationId, status: conv.status, messages };
+  return {
+    conversationId,
+    status: conv.status,
+    detectedLanguage: conv.detected_language,
+    messages,
+  };
 }
 
 export interface VisitorSummary {

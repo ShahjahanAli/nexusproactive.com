@@ -14,47 +14,63 @@ export interface ProductSignalRow {
   suggestion_status?: string | null;
 }
 
-export async function listProductSignals(
-  tenantId: string,
-  opts: {
-    q?: string;
-    siteId?: string;
-    status?: string;
-    minOccurrences?: number;
-    limit?: number;
-    offset?: number;
-  } = {},
-): Promise<{ signals: ProductSignalRow[]; total: number }> {
-  const limit = Math.min(opts.limit ?? 20, 100);
-  const offset = opts.offset ?? 0;
-  const filters: unknown[] = [tenantId];
+export interface ProductSignalStats {
+  total: number;
+  new_count: number;
+  reviewed: number;
+  resolved: number;
+  hot: number;
+  occurrences: number;
+  with_suggestion: number;
+  sites: number;
+  last_7_days: number;
+}
+
+interface SignalFilters {
+  q?: string;
+  siteId?: string;
+  status?: string;
+  minOccurrences?: number;
+}
+
+function buildWhere(tenantId: string, opts: SignalFilters) {
+  const params: unknown[] = [tenantId];
   const conds: string[] = ['s.tenant_id = $1'];
 
   if (opts.siteId) {
-    filters.push(opts.siteId);
-    conds.push(`ps.site_id = $${filters.length}`);
+    params.push(opts.siteId);
+    conds.push(`ps.site_id = $${params.length}`);
   }
   if (opts.status) {
-    filters.push(opts.status);
-    conds.push(`ps.status = $${filters.length}`);
+    params.push(opts.status);
+    conds.push(`ps.status = $${params.length}`);
   }
   if (opts.q) {
-    filters.push(`%${opts.q}%`);
-    conds.push(`ps.representative_message ILIKE $${filters.length}`);
+    params.push(`%${opts.q}%`);
+    conds.push(`ps.representative_message ILIKE $${params.length}`);
   }
   if (opts.minOccurrences && opts.minOccurrences > 1) {
-    filters.push(opts.minOccurrences);
-    conds.push(`ps.occurrence_count >= $${filters.length}`);
+    params.push(opts.minOccurrences);
+    conds.push(`ps.occurrence_count >= $${params.length}`);
   }
 
-  const where = conds.join(' AND ');
+  return { where: conds.join(' AND '), params };
+}
+
+export async function listProductSignals(
+  tenantId: string,
+  opts: SignalFilters & { limit?: number; offset?: number } = {},
+): Promise<{ signals: ProductSignalRow[]; total: number }> {
+  const limit = Math.min(opts.limit ?? 20, 100);
+  const offset = opts.offset ?? 0;
+  const { where, params } = buildWhere(tenantId, opts);
 
   const countRow = await queryOne<{ count: string }>(
     `SELECT COUNT(*)::text AS count
      FROM product_signals ps
      JOIN sites s ON s.id = ps.site_id
      WHERE ${where}`,
-    filters,
+    params,
   );
 
   const signals = await query<ProductSignalRow>(
@@ -63,14 +79,79 @@ export async function listProductSignals(
      JOIN sites s ON s.id = ps.site_id
      WHERE ${where}
      ORDER BY ps.occurrence_count DESC, ps.last_seen DESC
-     LIMIT $${filters.length + 1} OFFSET $${filters.length + 2}`,
-    [...filters, limit, offset],
+     LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+    [...params, limit, offset],
   );
 
   return {
     signals,
     total: parseInt(countRow?.count ?? '0', 10),
   };
+}
+
+export async function getProductSignalStats(
+  tenantId: string,
+  opts: SignalFilters = {},
+): Promise<ProductSignalStats> {
+  const { where, params } = buildWhere(tenantId, opts);
+
+  const row = await queryOne<{
+    total: string;
+    new_count: string;
+    reviewed: string;
+    resolved: string;
+    hot: string;
+    occurrences: string;
+    with_suggestion: string;
+    sites: string;
+    last_7_days: string;
+  }>(
+    `SELECT
+       COUNT(*)::text AS total,
+       COUNT(*) FILTER (WHERE ps.status = 'new')::text AS new_count,
+       COUNT(*) FILTER (WHERE ps.status = 'reviewed')::text AS reviewed,
+       COUNT(*) FILTER (WHERE ps.status = 'resolved')::text AS resolved,
+       COUNT(*) FILTER (WHERE ps.occurrence_count >= 5 AND ps.status = 'new')::text AS hot,
+       COALESCE(SUM(ps.occurrence_count), 0)::text AS occurrences,
+       COUNT(*) FILTER (
+         WHERE ps.suggestion_status IN ('ready', 'reviewed')
+            OR ps.suggested_endpoint IS NOT NULL
+       )::text AS with_suggestion,
+       COUNT(DISTINCT ps.site_id)::text AS sites,
+       COUNT(*) FILTER (WHERE ps.last_seen >= now() - interval '7 days')::text AS last_7_days
+     FROM product_signals ps
+     JOIN sites s ON s.id = ps.site_id
+     WHERE ${where}`,
+    params,
+  );
+
+  return {
+    total: parseInt(row?.total ?? '0', 10),
+    new_count: parseInt(row?.new_count ?? '0', 10),
+    reviewed: parseInt(row?.reviewed ?? '0', 10),
+    resolved: parseInt(row?.resolved ?? '0', 10),
+    hot: parseInt(row?.hot ?? '0', 10),
+    occurrences: parseInt(row?.occurrences ?? '0', 10),
+    with_suggestion: parseInt(row?.with_suggestion ?? '0', 10),
+    sites: parseInt(row?.sites ?? '0', 10),
+    last_7_days: parseInt(row?.last_7_days ?? '0', 10),
+  };
+}
+
+export async function updateProductSignalStatus(
+  tenantId: string,
+  signalId: string,
+  status: 'new' | 'reviewed' | 'resolved',
+): Promise<boolean> {
+  const row = await queryOne(
+    `UPDATE product_signals ps
+     SET status = $3
+     FROM sites s
+     WHERE ps.site_id = s.id AND ps.id = $1 AND s.tenant_id = $2
+     RETURNING ps.id`,
+    [signalId, tenantId, status],
+  );
+  return Boolean(row);
 }
 
 export async function recordProductSignal(

@@ -1,65 +1,81 @@
 const steps = [
   {
-    step: '01',
-    title: 'Create a deployment',
-    description:
-      'Add your site, brand details, and the backend URL your assistant should rely on.',
+    index: '1',
+    title: 'Connect your API',
+    description: 'Paste your OpenAPI spec URL. Nexus imports endpoints and assigns risk tiers you can override.',
   },
   {
-    step: '02',
-    title: 'Connect typed OpenAPI sources',
-    description:
-      'Attach product, service, FAQ, customer, or other API sources so the assistant knows where to fetch each type of information.',
+    index: '2',
+    title: 'Set the rules',
+    description: 'Pick which actions run free, which need approval, and where escalations go.',
   },
   {
-    step: '03',
-    title: 'Review actions and safety rules',
-    description:
-      'Verify discovered operations, adjust risk tiers if needed, and keep sensitive actions behind approval gates.',
+    index: '3',
+    title: 'Drop in two lines',
+    description: 'One script tag, one element. Works on any site — no framework required.',
   },
   {
-    step: '04',
-    title: 'Embed and launch the widget',
-    description:
-      'Drop the chat widget into your website and start handling real visitor questions with live business context.',
+    index: '4',
+    title: 'Watch it operate',
+    description: 'Conversations, actions, approvals, and escalations stream into your dashboard.',
   },
 ];
 
 export function LandingHowItWorks() {
   return (
-    <section id="how-it-works" className="border-t border-white/5 bg-slate-900/20 px-4 py-16 sm:px-6 sm:py-24 lg:px-8">
-      <div className="mx-auto max-w-7xl">
-        <div className="grid gap-10 lg:grid-cols-[0.85fr_1.15fr] lg:gap-12">
+    <section id="how-it-works" className="border-b border-zinc-800/60 bg-zinc-950 px-5 py-16 sm:px-8 sm:py-24">
+      <div className="mx-auto max-w-6xl">
+        <div className="grid gap-12 lg:grid-cols-[1fr_1fr] lg:gap-20">
           <div>
-            <p className="text-sm font-medium uppercase tracking-[0.2em] text-indigo-400">
-              Getting started
-            </p>
-            <h2 className="mt-4 text-3xl font-bold tracking-tight text-slate-50 sm:text-4xl">
-              A setup path teams can actually follow.
+            <p className="font-mono text-xs text-emerald-400">setup</p>
+            <h2 className="mt-3 text-2xl font-semibold tracking-tight text-zinc-50 sm:text-3xl">
+              Live in an afternoon.
             </h2>
-            <p className="mt-4 text-base leading-8 text-slate-400 sm:text-lg">
-              The platform is designed to be understandable during evaluation and manageable during rollout.
-              Teams can move from connection to launch without building a custom chat flow system from scratch.
-            </p>
+
+            <ol className="mt-8 space-y-6">
+              {steps.map((step) => (
+                <li key={step.index} className="flex gap-4">
+                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded border border-zinc-700 font-mono text-xs text-zinc-400">
+                    {step.index}
+                  </span>
+                  <div>
+                    <h3 className="text-[15px] font-medium text-zinc-100">{step.title}</h3>
+                    <p className="mt-1 text-sm leading-6 text-zinc-400">{step.description}</p>
+                  </div>
+                </li>
+              ))}
+            </ol>
           </div>
 
-          <div className="grid gap-4">
-            {steps.map((item) => (
-              <div
-                key={item.step}
-                className="flex gap-4 rounded-[28px] border border-white/5 bg-slate-950/60 p-6 sm:gap-5 sm:p-7"
-              >
-                <span className="shrink-0 font-mono text-2xl font-bold text-indigo-500/40 sm:text-3xl">
-                  {item.step}
+          <div className="lg:pt-14">
+            <div className="overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900/60">
+              <div className="flex items-center justify-between border-b border-zinc-800 px-4 py-2.5">
+                <span className="font-mono text-xs text-zinc-500">index.html</span>
+                <span className="font-mono text-[10px] uppercase tracking-wider text-zinc-600">
+                  the whole integration
                 </span>
-                <div>
-                  <h3 className="text-lg font-semibold text-slate-50 sm:text-xl">{item.title}</h3>
-                  <p className="mt-2 text-sm leading-7 text-slate-400 sm:text-base">
-                    {item.description}
-                  </p>
-                </div>
               </div>
-            ))}
+              <pre className="overflow-x-auto px-4 py-4 font-mono text-[12.5px] leading-7">
+                <code>
+                  <span className="text-zinc-600">{'<!-- before </body> -->'}</span>
+                  {'\n'}
+                  <span className="text-zinc-400">{'<script '}</span>
+                  <span className="text-sky-300">src</span>
+                  <span className="text-zinc-500">=</span>
+                  <span className="text-emerald-300">{'"https://api.nexusproactive.com/widget/nexus.js"'}</span>
+                  <span className="text-zinc-400">{'></script>'}</span>
+                  {'\n'}
+                  <span className="text-zinc-400">{'<nexus-chat '}</span>
+                  <span className="text-sky-300">site-id</span>
+                  <span className="text-zinc-500">=</span>
+                  <span className="text-emerald-300">{'"your-site-id"'}</span>
+                  <span className="text-zinc-400">{'></nexus-chat>'}</span>
+                </code>
+              </pre>
+            </div>
+            <p className="mt-4 font-mono text-xs text-zinc-600">
+              Ships as a web component. Shadow DOM — your CSS stays yours.
+            </p>
           </div>
         </div>
       </div>

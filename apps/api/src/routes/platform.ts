@@ -96,15 +96,29 @@ router.get('/tenants/:id', async (req, res) => {
   res.json(detail);
 });
 
+/**
+ * Zod strips unknown keys, so every field the admin UI can edit must be declared
+ * here or it is silently dropped before it reaches the database.
+ */
+const planLimitsSchema = z.object({
+  max_sites: z.number().int().positive(),
+  max_conversations_month: z.number().int().positive(),
+  max_tokens_month: z.number().int().positive(),
+  cx_agents_enabled: z.boolean().optional(),
+  max_cx_agents: z.number().int().min(0).max(1000).optional(),
+  default_max_concurrent_chats: z.number().int().min(1).max(200).optional(),
+  max_concurrent_chats_cap: z.number().int().min(1).max(500).optional(),
+  cx_peer_consult_enabled: z.boolean().optional(),
+  cx_specialist_consult_enabled: z.boolean().optional(),
+  cx_ratings_enabled: z.boolean().optional(),
+  cx_leaderboard_enabled: z.boolean().optional(),
+  cx_live_graph_enabled: z.boolean().optional(),
+  cx_knowledge_items_cap: z.number().int().min(0).max(100000).optional(),
+});
+
 const tenantPatchSchema = z.object({
   plan: z.enum(['trial', 'starter', 'growth', 'scale']).optional(),
-  plan_limits: z
-    .object({
-      max_sites: z.number().int().positive(),
-      max_conversations_month: z.number().int().positive(),
-      max_tokens_month: z.number().int().positive(),
-    })
-    .optional(),
+  plan_limits: planLimitsSchema.optional(),
   status: z.enum(['active', 'suspended', 'churned']).optional(),
   notes: z.string().nullable().optional(),
 });
@@ -153,13 +167,7 @@ router.get('/plans', async (_req, res) => {
 const planPatchSchema = z.object({
   name: z.string().min(1).optional(),
   description: z.string().nullable().optional(),
-  plan_limits: z
-    .object({
-      max_sites: z.number().int().positive(),
-      max_conversations_month: z.number().int().positive(),
-      max_tokens_month: z.number().int().positive(),
-    })
-    .optional(),
+  plan_limits: planLimitsSchema.optional(),
   stripe_price_id: z.string().nullable().optional(),
   is_public: z.boolean().optional(),
   sort_order: z.number().int().optional(),

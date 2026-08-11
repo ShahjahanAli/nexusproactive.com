@@ -107,15 +107,15 @@ function NavLink({
       onClick={onNavigate}
       className={`group flex items-center gap-3 rounded-lg border px-3 py-2.5 transition ${
         active
-          ? 'border-amber-500/30 bg-amber-950/40 text-amber-400'
-          : 'border-transparent text-zinc-500 hover:border-zinc-800 hover:bg-zinc-900/60 hover:text-zinc-300'
+          ? 'border-amber-500/50 bg-amber-950/60 text-amber-400'
+          : 'border-transparent text-zinc-400 hover:border-zinc-800 hover:bg-zinc-900/60 hover:text-zinc-200'
       }`}
     >
-      <span className={active ? 'text-amber-500' : 'text-zinc-600 group-hover:text-zinc-400'}>
+      <span className={active ? 'text-amber-500' : 'text-zinc-500 group-hover:text-zinc-300'}>
         {icon}
       </span>
       <span className="flex-1">
-        <span className="block font-mono text-[10px] tracking-widest opacity-60">{code}</span>
+        <span className="block font-mono text-[10px] tracking-widest opacity-80">{code}</span>
         <span className="block text-xs font-semibold uppercase tracking-wide">{label}</span>
       </span>
       {active && (
@@ -141,7 +141,7 @@ export function AdminShell({
 
   const sidebar = (
     <div className="flex h-full flex-col">
-      <div className="border-b border-zinc-800/80 px-4 py-4">
+      <div className="border-b border-zinc-800 px-4 py-4">
         <Link href="/admin" className="flex items-center gap-3" onClick={() => setSidebarOpen(false)}>
           <span className="flex h-9 w-9 items-center justify-center rounded border border-amber-500/30 bg-amber-950/50 font-mono text-sm font-bold text-amber-400">
             SA
@@ -167,10 +167,10 @@ export function AdminShell({
         ))}
       </nav>
 
-      <div className="border-t border-zinc-800/80 p-3">
+      <div className="border-t border-zinc-800 p-3">
         {user && (
-          <div className="mb-3 rounded-lg border border-zinc-800/80 bg-zinc-900/40 px-3 py-2.5">
-            <p className="truncate font-mono text-[10px] uppercase tracking-wider text-zinc-600">
+          <div className="mb-3 rounded-lg border border-zinc-800 bg-zinc-900/60 px-3 py-2.5">
+            <p className="truncate font-mono text-[10px] uppercase tracking-wider text-zinc-500">
               Platform operator
             </p>
             <p className="truncate text-sm font-medium text-zinc-200">
@@ -192,7 +192,7 @@ export function AdminShell({
 
   return (
     <div className="flex min-h-screen w-full flex-1 bg-background text-zinc-100">
-      <aside className="fixed inset-y-0 left-0 z-40 hidden w-64 border-r border-zinc-800/80 bg-zinc-950/95 backdrop-blur-xl lg:flex lg:flex-col">
+      <aside className="fixed inset-y-0 left-0 z-40 hidden w-64 border-r border-zinc-800 bg-zinc-950/95 backdrop-blur-xl lg:flex lg:flex-col">
         {sidebar}
       </aside>
 
@@ -203,7 +203,7 @@ export function AdminShell({
         />
       )}
       <aside
-        className={`fixed inset-y-0 left-0 z-50 w-72 border-r border-zinc-800/80 bg-zinc-950 transition-transform duration-200 lg:hidden ${
+        className={`fixed inset-y-0 left-0 z-50 w-72 border-r border-zinc-800 bg-zinc-950 transition-transform duration-200 lg:hidden ${
           sidebarOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
@@ -211,7 +211,7 @@ export function AdminShell({
       </aside>
 
       <div className="flex min-h-screen flex-1 flex-col lg:pl-64">
-        <header className="sticky top-0 z-30 border-b border-zinc-800/80 bg-background/90 backdrop-blur-xl">
+        <header className="sticky top-0 z-30 border-b border-zinc-800 bg-background/90 backdrop-blur-xl">
           <div className="flex h-14 items-center justify-between gap-4 px-4 sm:px-6">
             <div className="flex items-center gap-3">
               <button
@@ -231,7 +231,7 @@ export function AdminShell({
             <div className="flex items-center gap-3">
               <ThemeToggle />
               {user && (
-                <span className="hidden truncate font-mono text-xs text-zinc-500 sm:inline">
+                <span className="hidden truncate font-mono text-xs text-zinc-400 sm:inline">
                   {user.email}
                 </span>
               )}
